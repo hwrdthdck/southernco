@@ -21,6 +21,8 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/confighttp"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/receiver/receivertest"
 )
 
@@ -40,6 +42,10 @@ func newNopFirehoseConsumer(statusCode int, err error) *nopFirehoseConsumer {
 	return &nopFirehoseConsumer{statusCode, err}
 }
 
+func (*nopFirehoseConsumer) Start(context.Context, component.Host) error {
+	return nil
+}
+
 func (nfc *nopFirehoseConsumer) Consume(context.Context, [][]byte, map[string]string) (int, error) {
 	return nfc.statusCode, nfc.err
 }
@@ -49,9 +55,6 @@ func TestStart(t *testing.T) {
 		host    component.Host
 		wantErr error
 	}{
-		"WithoutHost": {
-			wantErr: errMissingHost,
-		},
 		"WithHost": {
 			host: componenttest.NewNopHost(),
 		},
@@ -60,7 +63,7 @@ func TestStart(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cfg := &Config{}
 			ctx := context.TODO()
-			r := testFirehoseReceiver(cfg, nil)
+			r := testFirehoseReceiver(cfg, &nopFirehoseConsumer{})
 			got := r.Start(ctx, testCase.host)
 			require.Equal(t, testCase.wantErr, got)
 			if r.server != nil {
@@ -80,7 +83,7 @@ func TestStart(t *testing.T) {
 			},
 		}
 		ctx := context.TODO()
-		r := testFirehoseReceiver(cfg, nil)
+		r := testFirehoseReceiver(cfg, &nopFirehoseConsumer{})
 		got := r.Start(ctx, componenttest.NewNopHost())
 		require.Error(t, got)
 		if r.server != nil {
@@ -249,4 +252,45 @@ func testFirehoseRequest(requestID string, records []firehoseRecord) firehoseReq
 func testFirehoseRecord(data string) firehoseRecord {
 	encoded := base64.StdEncoding.EncodeToString([]byte(data))
 	return firehoseRecord{Data: encoded}
+}
+
+type hostWithExtensions struct {
+	component.Host
+	extensions map[component.ID]component.Component
+}
+
+func (h hostWithExtensions) GetExtensions() map[component.ID]component.Component {
+	return h.extensions
+}
+
+type plogUnmarshalerExtension struct {
+	logs plog.Logs
+}
+
+func (e plogUnmarshalerExtension) Start(context.Context, component.Host) error {
+	return nil
+}
+
+func (e plogUnmarshalerExtension) Shutdown(context.Context) error {
+	return nil
+}
+
+func (e plogUnmarshalerExtension) UnmarshalLogs([]byte) (plog.Logs, error) {
+	return e.logs, nil
+}
+
+type pmetricUnmarshalerExtension struct {
+	metrics pmetric.Metrics
+}
+
+func (e pmetricUnmarshalerExtension) Start(context.Context, component.Host) error {
+	return nil
+}
+
+func (e pmetricUnmarshalerExtension) Shutdown(context.Context) error {
+	return nil
+}
+
+func (e pmetricUnmarshalerExtension) UnmarshalMetrics([]byte) (pmetric.Metrics, error) {
+	return e.metrics, nil
 }

@@ -9,14 +9,16 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/receiver/receivertest"
-	"go.uber.org/zap"
 
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awsfirehosereceiver/internal/unmarshaler/cwlog"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awsfirehosereceiver/internal/unmarshaler/unmarshalertest"
 )
 
@@ -35,34 +37,72 @@ func (rc *logsRecordConsumer) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: false}
 }
 
-func TestNewLogsReceiver(t *testing.T) {
+func TestLogsReceiver_Start(t *testing.T) {
 	testCases := map[string]struct {
-		consumer   consumer.Logs
-		recordType string
-		wantErr    error
+		encoding            string
+		recordType          string
+		wantUnmarshalerType plog.Unmarshaler
+		wantErr             string
 	}{
-		"WithInvalidRecordType": {
-			consumer:   consumertest.NewNop(),
-			recordType: "test",
-			wantErr:    errUnrecognizedRecordType,
+		"WithDefaultEncoding": {
+			wantUnmarshalerType: &cwlog.Unmarshaler{},
+		},
+		"WithBuiltinEncoding": {
+			encoding:            "cwlogs",
+			wantUnmarshalerType: &cwlog.Unmarshaler{},
+		},
+		"WithExtensionEncoding": {
+			encoding:            "otlp_logs",
+			wantUnmarshalerType: plogUnmarshalerExtension{},
+		},
+		"WithDeprecatedRecordType": {
+			recordType:          "otlp_logs",
+			wantUnmarshalerType: plogUnmarshalerExtension{},
+		},
+		"WithUnknownEncoding": {
+			encoding: "invalid",
+			wantErr:  "unknown encoding extension \"invalid\"",
+		},
+		"WithNonLogUnmarshalerExtension": {
+			encoding: "otlp_metrics",
+			wantErr:  `extension "otlp_metrics" is not a logs unmarshaler`,
 		},
 	}
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
 			cfg := createDefaultConfig().(*Config)
+			cfg.Encoding = testCase.encoding
 			cfg.RecordType = testCase.recordType
 			got, err := newLogsReceiver(
 				cfg,
 				receivertest.NewNopSettings(),
-				defaultLogsUnmarshalers(zap.NewNop()),
-				testCase.consumer,
+				consumertest.NewNop(),
 			)
-			require.Equal(t, testCase.wantErr, err)
-			if testCase.wantErr == nil {
-				require.NotNil(t, got)
-			} else {
-				require.Nil(t, got)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.IsType(t, &firehoseReceiver{}, got)
+			t.Cleanup(func() {
+				require.NoError(t, got.Shutdown(context.Background()))
+			})
+
+			host := hostWithExtensions{
+				extensions: map[component.ID]component.Component{
+					component.MustNewID("otlp_logs"):    plogUnmarshalerExtension{},
+					component.MustNewID("otlp_metrics"): pmetricUnmarshalerExtension{},
+				},
 			}
+
+			err = got.Start(context.Background(), host)
+			if testCase.wantErr != "" {
+				require.EqualError(t, err, testCase.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.IsType(t,
+				testCase.wantUnmarshalerType,
+				got.(*firehoseReceiver).consumer.(*logsConsumer).unmarshaler,
+			)
 		})
 	}
 }
@@ -96,11 +136,11 @@ func TestLogsConsumer(t *testing.T) {
 	}
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
-			mc := &logsConsumer{
+			lc := &logsConsumer{
 				unmarshaler: unmarshalertest.NewErrLogs(testCase.unmarshalerErr),
 				consumer:    consumertest.NewErr(testCase.consumerErr),
 			}
-			gotStatus, gotErr := mc.Consume(context.TODO(), nil, nil)
+			gotStatus, gotErr := lc.Consume(context.TODO(), [][]byte{{0}}, nil)
 			require.Equal(t, testCase.wantStatus, gotStatus)
 			require.Equal(t, testCase.wantErr, gotErr)
 		})
@@ -110,11 +150,11 @@ func TestLogsConsumer(t *testing.T) {
 		base := plog.NewLogs()
 		base.ResourceLogs().AppendEmpty()
 		rc := logsRecordConsumer{}
-		mc := &logsConsumer{
+		lc := &logsConsumer{
 			unmarshaler: unmarshalertest.NewWithLogs(base),
 			consumer:    &rc,
 		}
-		gotStatus, gotErr := mc.Consume(context.TODO(), nil, map[string]string{
+		gotStatus, gotErr := lc.Consume(context.TODO(), [][]byte{{0}}, map[string]string{
 			"CommonAttributes": "Test",
 		})
 		require.Equal(t, http.StatusOK, gotStatus)

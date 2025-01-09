@@ -7,25 +7,30 @@ import (
 	"context"
 	"net/http"
 
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/consumer/consumererror"
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/receiver"
 
-	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awsfirehosereceiver/internal/unmarshaler"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/pdatautil"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awsfirehosereceiver/internal/unmarshaler/cwlog"
 )
 
-const defaultLogsRecordType = cwlog.TypeStr
+const defaultLogsEncoding = cwlog.TypeStr
 
 // logsConsumer implements the firehoseConsumer
 // to use a logs consumer and unmarshaler.
 type logsConsumer struct {
+	config   *Config
+	settings receiver.Settings
+
 	// consumer passes the translated logs on to the
 	// next consumer.
 	consumer consumer.Logs
-	// unmarshaler is the configured LogsUnmarshaler
+	// unmarshaler is the configured plog.Unmarshaler
 	// to use when processing the records.
-	unmarshaler unmarshaler.LogsUnmarshaler
+	unmarshaler plog.Unmarshaler
 }
 
 var _ firehoseConsumer = (*logsConsumer)(nil)
@@ -35,42 +40,64 @@ var _ firehoseConsumer = (*logsConsumer)(nil)
 func newLogsReceiver(
 	config *Config,
 	set receiver.Settings,
-	unmarshalers map[string]unmarshaler.LogsUnmarshaler,
 	nextConsumer consumer.Logs,
 ) (receiver.Logs, error) {
-	recordType := config.RecordType
-	if recordType == "" {
-		recordType = defaultLogsRecordType
+	c := &logsConsumer{
+		config:   config,
+		settings: set,
+		consumer: nextConsumer,
 	}
-	configuredUnmarshaler := unmarshalers[recordType]
-	if configuredUnmarshaler == nil {
-		return nil, errUnrecognizedRecordType
-	}
-
-	mc := &logsConsumer{
-		consumer:    nextConsumer,
-		unmarshaler: configuredUnmarshaler,
-	}
-
 	return &firehoseReceiver{
 		settings: set,
 		config:   config,
-		consumer: mc,
+		consumer: c,
 	}, nil
+}
+
+func (c *logsConsumer) Start(_ context.Context, host component.Host) error {
+	encoding := c.config.Encoding
+	if encoding == "" {
+		encoding = c.config.RecordType
+		if encoding == "" {
+			encoding = defaultLogsEncoding
+		}
+	}
+	if encoding == cwlog.TypeStr {
+		// TODO: make cwlogs an encoding extension
+		c.unmarshaler = cwlog.NewUnmarshaler(c.settings.Logger)
+	} else {
+		unmarshaler, err := loadEncodingExtension[plog.Unmarshaler](host, encoding, "logs")
+		if err != nil {
+			return err
+		}
+		c.unmarshaler = unmarshaler
+	}
+	return nil
 }
 
 // Consume uses the configured unmarshaler to deserialize the records into a
 // single plog.Logs. It will send the final result
 // to the next consumer.
-func (mc *logsConsumer) Consume(ctx context.Context, records [][]byte, commonAttributes map[string]string) (int, error) {
-	md, err := mc.unmarshaler.Unmarshal(records)
-	if err != nil {
-		return http.StatusBadRequest, err
+func (c *logsConsumer) Consume(ctx context.Context, records [][]byte, commonAttributes map[string]string) (int, error) {
+	logs := plog.NewLogs()
+	for i, record := range records {
+		recordLogs, err := c.unmarshaler.UnmarshalLogs(record)
+		if err != nil {
+			return http.StatusBadRequest, err
+		}
+		if i == 0 {
+			logs = recordLogs
+		} else {
+			recordLogs.CopyTo(logs)
+		}
 	}
 
+	// Merge identical resources and metrics.
+	pdatautil.GroupByResourceLogs(logs.ResourceLogs())
+
 	if commonAttributes != nil {
-		for i := 0; i < md.ResourceLogs().Len(); i++ {
-			rm := md.ResourceLogs().At(i)
+		for i := 0; i < logs.ResourceLogs().Len(); i++ {
+			rm := logs.ResourceLogs().At(i)
 			for k, v := range commonAttributes {
 				if _, found := rm.Resource().Attributes().Get(k); !found {
 					rm.Resource().Attributes().PutStr(k, v)
@@ -79,8 +106,7 @@ func (mc *logsConsumer) Consume(ctx context.Context, records [][]byte, commonAtt
 		}
 	}
 
-	err = mc.consumer.ConsumeLogs(ctx, md)
-	if err != nil {
+	if err := c.consumer.ConsumeLogs(ctx, logs); err != nil {
 		if consumererror.IsPermanent(err) {
 			return http.StatusBadRequest, err
 		}
