@@ -38,7 +38,7 @@ type TransformContext struct {
 	resource             pcommon.Resource
 	cache                pcommon.Map
 	scopeSpans           ptrace.ScopeSpans
-	resouceSpans         ptrace.ResourceSpans
+	resourceSpans        ptrace.ResourceSpans
 }
 
 func (tCtx TransformContext) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
@@ -62,7 +62,7 @@ func NewTransformContext(spanEvent ptrace.SpanEvent, span ptrace.Span, instrumen
 		resource:             resource,
 		cache:                pcommon.NewMap(),
 		scopeSpans:           scopeSpans,
-		resouceSpans:         resourceSpans,
+		resourceSpans:        resourceSpans,
 	}
 	for _, opt := range options {
 		opt(&tc)
@@ -104,7 +104,7 @@ func (tCtx TransformContext) GetScopeSchemaURLItem() internal.SchemaURLItem {
 }
 
 func (tCtx TransformContext) GetResourceSchemaURLItem() internal.SchemaURLItem {
-	return tCtx.resouceSpans
+	return tCtx.resourceSpans
 }
 
 func NewParser(functions map[string]ottl.Factory[TransformContext], telemetrySettings component.TelemetrySettings, options ...Option) (ottl.Parser[TransformContext], error) {
