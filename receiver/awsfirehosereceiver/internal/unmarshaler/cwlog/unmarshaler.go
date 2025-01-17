@@ -16,8 +16,6 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	conventions "go.opentelemetry.io/collector/semconv/v1.6.1"
 	"go.uber.org/zap"
-
-	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/pdatautil"
 )
 
 const (
@@ -51,8 +49,14 @@ func (u Unmarshaler) UnmarshalLogs(compressedRecord []byte) (plog.Logs, error) {
 	}
 	decoder := json.NewDecoder(r)
 
+	type resourceKey struct {
+		owner     string
+		logGroup  string
+		logStream string
+	}
+	byResource := make(map[resourceKey]plog.LogRecordSlice)
+
 	// Multiple logs in each record separated by newline character
-	logs := plog.NewLogs()
 	for datumIndex := 0; ; datumIndex++ {
 		var log cWLog
 		if err := decoder.Decode(&log); err != nil {
@@ -74,13 +78,17 @@ func (u Unmarshaler) UnmarshalLogs(compressedRecord []byte) (plog.Logs, error) {
 			continue
 		}
 
-		rl := logs.ResourceLogs().AppendEmpty()
-		resourceAttrs := rl.Resource().Attributes()
-		resourceAttrs.PutStr(conventions.AttributeCloudAccountID, log.Owner)
-		resourceAttrs.PutStr(attributeAWSCloudWatchLogGroupName, log.LogGroup)
-		resourceAttrs.PutStr(attributeAWSCloudWatchLogStreamName, log.LogStream)
+		resourceKey := resourceKey{
+			owner:     log.Owner,
+			logGroup:  log.LogGroup,
+			logStream: log.LogStream,
+		}
+		logRecords, ok := byResource[resourceKey]
+		if !ok {
+			logRecords = plog.NewLogRecordSlice()
+			byResource[resourceKey] = logRecords
+		}
 
-		logRecords := rl.ScopeLogs().AppendEmpty().LogRecords()
 		for _, event := range log.LogEvents {
 			logRecord := logRecords.AppendEmpty()
 			// pcommon.Timestamp is a time specified as UNIX Epoch time in nanoseconds
@@ -89,10 +97,19 @@ func (u Unmarshaler) UnmarshalLogs(compressedRecord []byte) (plog.Logs, error) {
 			logRecord.Body().SetStr(event.Message)
 		}
 	}
-	if logs.ResourceLogs().Len() == 0 {
-		return logs, errInvalidRecords
+	if len(byResource) == 0 {
+		return plog.Logs{}, errInvalidRecords
 	}
-	pdatautil.GroupByResourceLogs(logs.ResourceLogs())
+
+	logs := plog.NewLogs()
+	for resourceKey, logRecords := range byResource {
+		rl := logs.ResourceLogs().AppendEmpty()
+		resourceAttrs := rl.Resource().Attributes()
+		resourceAttrs.PutStr(conventions.AttributeCloudAccountID, resourceKey.owner)
+		resourceAttrs.PutStr(attributeAWSCloudWatchLogGroupName, resourceKey.logGroup)
+		resourceAttrs.PutStr(attributeAWSCloudWatchLogStreamName, resourceKey.logStream)
+		logRecords.MoveAndAppendTo(rl.ScopeLogs().AppendEmpty().LogRecords())
+	}
 	return logs, nil
 }
 
