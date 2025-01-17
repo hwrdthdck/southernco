@@ -147,11 +147,6 @@ func TestFirehoseRequest(t *testing.T) {
 			wantStatusCode: http.StatusBadRequest,
 			wantErr:        errInBodyDiffRequestID,
 		},
-		"WithInvalidBody": {
-			body:           "{ test: ",
-			wantStatusCode: http.StatusBadRequest,
-			wantErr:        errors.New("json: cannot unmarshal string into Go value of type awsfirehosereceiver.firehoseRequest"),
-		},
 		"WithNoRecords": {
 			body:           testFirehoseRequest(testFirehoseRequestID, noRecords),
 			wantStatusCode: http.StatusOK,
@@ -190,13 +185,7 @@ func TestFirehoseRequest(t *testing.T) {
 			body, err := json.Marshal(testCase.body)
 			require.NoError(t, err)
 
-			requestBody := bytes.NewBuffer(body)
-
-			request := httptest.NewRequest(http.MethodPost, "/", requestBody)
-			request.Header.Set(headerContentType, "application/json")
-			request.Header.Set(headerContentLength, strconv.Itoa(requestBody.Len()))
-			request.Header.Set(headerFirehoseRequestID, testFirehoseRequestID)
-			request.Header.Set(headerFirehoseAccessKey, testFirehoseAccessKey)
+			request := newTestRequest(body)
 			if testCase.headers != nil {
 				for k, v := range testCase.headers {
 					request.Header.Set(k, v)
@@ -230,6 +219,32 @@ func TestFirehoseRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFirehoseRequestInvalidJSON is tested separately from TestFirehoseRequest
+// because the error message is highly dependent on the JSON decoding library used,
+// so we don't do an exact match.
+func TestFirehoseRequestInvalidJSON(t *testing.T) {
+	consumer := newNopFirehoseConsumer(http.StatusOK, nil)
+	r := testFirehoseReceiver(&Config{}, consumer)
+
+	got := httptest.NewRecorder()
+	r.ServeHTTP(got, newTestRequest([]byte("{ test: ")))
+	require.Equal(t, http.StatusBadRequest, got.Code)
+
+	var gotResponse firehoseResponse
+	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &gotResponse))
+	require.Equal(t, testFirehoseRequestID, gotResponse.RequestID)
+	require.Regexp(t, gotResponse.ErrorMessage, `awsfirehosereceiver\.firehoseRequest\.ReadStringAsSlice: expects .*`)
+}
+
+func newTestRequest(requestBody []byte) *http.Request {
+	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(requestBody))
+	request.Header.Set(headerContentType, "application/json")
+	request.Header.Set(headerContentLength, strconv.Itoa(len(requestBody)))
+	request.Header.Set(headerFirehoseRequestID, testFirehoseRequestID)
+	request.Header.Set(headerFirehoseAccessKey, testFirehoseAccessKey)
+	return request
 }
 
 // testFirehoseReceiver is a convenience function for creating a test firehoseReceiver
