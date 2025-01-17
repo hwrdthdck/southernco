@@ -234,13 +234,12 @@ func calculateStartEndTime(interval, delay time.Duration) (time.Time, time.Time)
 // getFilterQuery constructs a filter query string based on the provided metric.
 func getFilterQuery(metric MetricConfig) string {
 	var filterQuery string
-	const baseQuery = `metric.type =`
 
 	// see https://cloud.google.com/monitoring/api/v3/filters
 	if metric.MetricName != "" {
-		filterQuery = fmt.Sprintf(`%s "%s"`, baseQuery, metric.MetricName)
+		filterQuery = fmt.Sprintf(`metric.type = "%s"`, metric.MetricName)
 	} else {
-		filterQuery = fmt.Sprintf(`%s monitoring.regex.full_match("%s")`, baseQuery, metric.MetricName)
+		filterQuery = metric.MonitoringFilter
 	}
 
 	return filterQuery

@@ -25,8 +25,8 @@ type Config struct {
 }
 
 type MetricConfig struct {
-	MetricName      string `mapstructure:"metric_name"`
-	MetricNameRegex string `mapstructure:"metric_name_regex"`
+	MetricName       string `mapstructure:"metric_name"`
+	MonitoringFilter string `mapstructure:"monitoring_filter"`
 }
 
 func (config *Config) Validate() error {
@@ -48,12 +48,12 @@ func (config *Config) Validate() error {
 }
 
 func (metric MetricConfig) Validate() error {
-	if metric.MetricName != "" && metric.MetricNameRegex != "" {
-		return errors.New("fields \"metric_name\" and \"metric_name_regex\" cannot both have value")
+	if metric.MetricName != "" && metric.MonitoringFilter != "" {
+		return errors.New("fields \"metric_name\" and \"monitoring_filter\" cannot both have value")
 	}
 
-	if metric.MetricName == "" && metric.MetricNameRegex == "" {
-		return errors.New("fields \"metric_name\" and \"metric_name_regex\" cannot both be empty")
+	if metric.MetricName == "" && metric.MonitoringFilter == "" {
+		return errors.New("fields \"metric_name\" and \"monitoring_filter\" cannot both be empty")
 	}
 
 	if metric.MetricName == "" {
