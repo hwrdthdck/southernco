@@ -168,30 +168,30 @@ func TestMetricsConsumer(t *testing.T) {
 	t.Run("WithMultipleRecords", func(t *testing.T) {
 		// service0, scope0
 		metrics0, metricSlice0 := newMetrics("service0", "scope0")
-		_, sum0unit0 := addDeltaSumMetric(metricSlice0, "sum0", "unit0")
+		sum0unit0 := addDeltaSumMetric(metricSlice0, "sum0", "unit0")
 		addSumDataPoint(sum0unit0, 1)
 
 		// service0, [scope0. scope1]
 		// these scopes should be merged into the above resource metrics
 		metrics1, metricSlice1 := newMetrics("service0", "scope0")
-		_, sum0unit0 = addDeltaSumMetric(metricSlice1, "sum0", "unit0")
+		sum0unit0 = addDeltaSumMetric(metricSlice1, "sum0", "unit0")
 		addSumDataPoint(sum0unit0, 2)
-		_, sum0unit1 := addDeltaSumMetric(metricSlice1, "sum0", "unit1")
+		sum0unit1 := addDeltaSumMetric(metricSlice1, "sum0", "unit1")
 		addSumDataPoint(sum0unit1, 3)
 		scopeMetrics1 := metrics1.ResourceMetrics().At(0).ScopeMetrics().AppendEmpty()
 		newScope("scope1").MoveTo(scopeMetrics1.Scope())
-		_, sum0unit0 = addDeltaSumMetric(scopeMetrics1.Metrics(), "sum0", "unit0")
+		sum0unit0 = addDeltaSumMetric(scopeMetrics1.Metrics(), "sum0", "unit0")
 		addSumDataPoint(sum0unit0, 4)
 
 		// service1, scope0
 		metrics2, metricSlice2 := newMetrics("service1", "scope0")
-		_, sum0unit0 = addDeltaSumMetric(metricSlice2, "sum0", "unit0")
+		sum0unit0 = addDeltaSumMetric(metricSlice2, "sum0", "unit0")
 		addSumDataPoint(sum0unit0, 5)
-		_, sum1unit0 := addDeltaSumMetric(metricSlice2, "sum1", "unit0")
+		sum1unit0 := addDeltaSumMetric(metricSlice2, "sum1", "unit0")
 		addSumDataPoint(sum1unit0, 6)
 
 		metricsRemaining := []pmetric.Metrics{metrics0, metrics1, metrics2}
-		var unmarshaler unmarshalMetricsFunc = func(data []byte) (pmetric.Metrics, error) {
+		var unmarshaler unmarshalMetricsFunc = func([]byte) (pmetric.Metrics, error) {
 			metrics := metricsRemaining[0]
 			metricsRemaining = metricsRemaining[1:]
 			return metrics, nil
@@ -233,13 +233,13 @@ func TestMetricsConsumer(t *testing.T) {
 				scopeMetrics := resourceMetrics.ScopeMetrics().At(i)
 				scope.scope = scopeMetrics.Scope().Name()
 				for i := 0; i < scopeMetrics.Metrics().Len(); i++ {
-					m := scopeMetrics.Metrics().At(i)
-					metric := metric{name: m.Name(), unit: m.Unit()}
-					for i := 0; i < m.Sum().DataPoints().Len(); i++ {
-						dp := m.Sum().DataPoints().At(i)
-						metric.datapoints = append(metric.datapoints, dp.IntValue())
+					mi := scopeMetrics.Metrics().At(i)
+					m := metric{name: mi.Name(), unit: mi.Unit()}
+					for i := 0; i < mi.Sum().DataPoints().Len(); i++ {
+						dp := mi.Sum().DataPoints().At(i)
+						m.datapoints = append(m.datapoints, dp.IntValue())
 					}
-					scope.metrics = append(scope.metrics, metric)
+					scope.metrics = append(scope.metrics, m)
 				}
 				scopes = append(scopes, scope)
 			}
@@ -281,19 +281,18 @@ func newMetrics(serviceName, scopeName string) (pmetric.Metrics, pmetric.MetricS
 	return metrics, scopeMetrics.Metrics()
 }
 
-func addDeltaSumMetric(metrics pmetric.MetricSlice, name, unit string) (pmetric.Metric, pmetric.Sum) {
+func addDeltaSumMetric(metrics pmetric.MetricSlice, name, unit string) pmetric.Sum {
 	m := metrics.AppendEmpty()
 	m.SetName(name)
 	m.SetUnit(unit)
 	sum := m.SetEmptySum()
 	sum.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
-	return m, sum
+	return sum
 }
 
-func addSumDataPoint(sum pmetric.Sum, value int64) pmetric.NumberDataPoint {
+func addSumDataPoint(sum pmetric.Sum, value int64) {
 	dp := sum.DataPoints().AppendEmpty()
 	dp.SetIntValue(value)
-	return dp
 }
 
 type unmarshalMetricsFunc func([]byte) (pmetric.Metrics, error)

@@ -72,29 +72,29 @@ func (u Unmarshaler) UnmarshalMetrics(record []byte) (pmetric.Metrics, error) {
 			continue
 		}
 
-		key := resourceKey{
+		rkey := resourceKey{
 			metricStreamName: cwMetric.MetricStreamName,
 			namespace:        cwMetric.Namespace,
 			accountID:        cwMetric.AccountID,
 			region:           cwMetric.Region,
 		}
-		metrics, ok := byResource[key]
+		metrics, ok := byResource[rkey]
 		if !ok {
 			metrics = make(map[metricKey]pmetric.Metric)
-			byResource[key] = metrics
+			byResource[rkey] = metrics
 		}
 
-		metricKey := metricKey{
+		mkey := metricKey{
 			name: cwMetric.MetricName,
 			unit: cwMetric.Unit,
 		}
-		metric, ok := metrics[metricKey]
+		metric, ok := metrics[mkey]
 		if !ok {
 			metric = pmetric.NewMetric()
-			metric.SetName(metricKey.name)
-			metric.SetUnit(metricKey.unit)
+			metric.SetName(mkey.name)
+			metric.SetUnit(mkey.unit)
 			metric.SetEmptySummary()
-			metrics[metricKey] = metric
+			metrics[mkey] = metric
 		}
 
 		dp := metric.Summary().DataPoints().AppendEmpty()

@@ -86,15 +86,15 @@ func (u *Unmarshaler) UnmarshalLogs(compressedRecord []byte) (plog.Logs, error) 
 			continue
 		}
 
-		resourceKey := resourceKey{
+		key := resourceKey{
 			owner:     log.Owner,
 			logGroup:  log.LogGroup,
 			logStream: log.LogStream,
 		}
-		logRecords, ok := byResource[resourceKey]
+		logRecords, ok := byResource[key]
 		if !ok {
 			logRecords = plog.NewLogRecordSlice()
-			byResource[resourceKey] = logRecords
+			byResource[key] = logRecords
 		}
 
 		for _, event := range log.LogEvents {

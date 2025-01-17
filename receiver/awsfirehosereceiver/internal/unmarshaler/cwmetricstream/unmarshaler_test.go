@@ -181,7 +181,7 @@ func TestSetResourceAttributes(t *testing.T) {
 	}
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
-			resourceKey := resourceKey{
+			key := resourceKey{
 				accountID:        testAccountID,
 				region:           testRegion,
 				metricStreamName: testStreamName,
@@ -189,7 +189,7 @@ func TestSetResourceAttributes(t *testing.T) {
 			}
 
 			resource := pcommon.NewResource()
-			setResourceAttributes(resourceKey, resource)
+			setResourceAttributes(key, resource)
 			require.Equal(t, testCase.want, resource.Attributes().AsRaw())
 		})
 	}

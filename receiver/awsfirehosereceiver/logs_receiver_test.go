@@ -185,7 +185,7 @@ func TestLogsConsumer(t *testing.T) {
 		logRecords2.AppendEmpty().Body().SetStr("record5")
 
 		logsRemaining := []plog.Logs{logs0, logs1, logs2}
-		var unmarshaler unmarshalLogsFunc = func(data []byte) (plog.Logs, error) {
+		var unmarshaler unmarshalLogsFunc = func([]byte) (plog.Logs, error) {
 			logs := logsRemaining[0]
 			logsRemaining = logsRemaining[1:]
 			return logs, nil

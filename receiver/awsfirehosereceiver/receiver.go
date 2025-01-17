@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componentstatus"
 	"go.opentelemetry.io/collector/receiver"
@@ -241,19 +239,6 @@ func (fmr *firehoseReceiver) validate(r *http.Request) (int, error) {
 		return http.StatusAccepted, nil
 	}
 	return http.StatusUnauthorized, errInvalidAccessKey
-}
-
-// getBody reads the body from the request as a slice of bytes.
-func (fmr *firehoseReceiver) getBody(r *http.Request) ([]byte, error) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-	err = r.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-	return body, nil
 }
 
 // getCommonAttributes unmarshalls the common attributes from the request header
