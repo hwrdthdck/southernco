@@ -88,7 +88,9 @@ func (c *logsConsumer) Consume(ctx context.Context, records [][]byte, commonAttr
 		if i == 0 {
 			logs = recordLogs
 		} else {
-			recordLogs.CopyTo(logs)
+			for i := 0; i < recordLogs.ResourceLogs().Len(); i++ {
+				recordLogs.ResourceLogs().At(i).MoveTo(logs.ResourceLogs().AppendEmpty())
+			}
 		}
 	}
 

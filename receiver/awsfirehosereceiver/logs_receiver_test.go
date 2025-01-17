@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/receiver/receivertest"
 
@@ -107,7 +108,7 @@ func TestLogsReceiver_Start(t *testing.T) {
 	}
 }
 
-func TestLogsConsumer(t *testing.T) {
+func TestLogsConsumer_Errors(t *testing.T) {
 	testErr := errors.New("test error")
 	testCases := map[string]struct {
 		unmarshalerErr error
@@ -145,7 +146,9 @@ func TestLogsConsumer(t *testing.T) {
 			require.Equal(t, testCase.wantErr, gotErr)
 		})
 	}
+}
 
+func TestLogsConsumer(t *testing.T) {
 	t.Run("WithCommonAttributes", func(t *testing.T) {
 		base := plog.NewLogs()
 		base.ResourceLogs().AppendEmpty()
@@ -164,4 +167,102 @@ func TestLogsConsumer(t *testing.T) {
 		gotRm := gotRms.At(0)
 		require.Equal(t, 1, gotRm.Resource().Attributes().Len())
 	})
+	t.Run("WithMultipleRecords", func(t *testing.T) {
+		// service0, scope0
+		logs0, logRecords0, resource0, scope0 := newLogs()
+		resource0.Attributes().PutStr("service.name", "service0")
+		scope0.SetName("scope0")
+		logRecords0.AppendEmpty().Body().SetStr("record0")
+		logRecords0.AppendEmpty().Body().SetStr("record1")
+
+		// service0, [scope0. scope1]
+		// these scopes should be merged into the above resource logs
+		logs1, logRecords1, resource1, scope0 := newLogs()
+		resource1.Attributes().PutStr("service.name", "service0")
+		scope0.SetName("scope0")
+		logRecords1.AppendEmpty().Body().SetStr("record2")
+		scopeLogs1 := logs1.ResourceLogs().At(0).ScopeLogs().AppendEmpty()
+		scopeLogs1.Scope().SetName("scope1")
+		scopeLogs1.LogRecords().AppendEmpty().Body().SetStr("record3")
+
+		// service1, scope0
+		logs2, logRecords2, resource2, scope2 := newLogs()
+		resource2.Attributes().PutStr("service.name", "service1")
+		scope2.SetName("scope0")
+		logRecords2.AppendEmpty().Body().SetStr("record4")
+		logRecords2.AppendEmpty().Body().SetStr("record5")
+
+		logsRemaining := []plog.Logs{logs0, logs1, logs2}
+		var unmarshaler unmarshalLogsFunc = func(data []byte) (plog.Logs, error) {
+			logs := logsRemaining[0]
+			logsRemaining = logsRemaining[1:]
+			return logs, nil
+		}
+
+		rc := logsRecordConsumer{}
+		lc := &logsConsumer{unmarshaler: unmarshaler, consumer: &rc}
+		gotStatus, gotErr := lc.Consume(context.Background(), make([][]byte, len(logsRemaining)), nil)
+		require.Equal(t, http.StatusOK, gotStatus)
+		require.NoError(t, gotErr)
+		assert.Equal(t, 6, rc.result.LogRecordCount())
+		assert.Equal(t, 2, rc.result.ResourceLogs().Len()) // service0, service1
+
+		type scopeRecords struct {
+			scope   string
+			records []string
+		}
+
+		type resourceScopeRecords struct {
+			serviceName string
+			scopes      []scopeRecords
+		}
+
+		var merged []resourceScopeRecords
+		for i := 0; i < rc.result.ResourceLogs().Len(); i++ {
+			resourceLogs := rc.result.ResourceLogs().At(i)
+			serviceName, ok := resourceLogs.Resource().Attributes().Get("service.name")
+			require.True(t, ok)
+
+			var scopes []scopeRecords
+			for i := 0; i < resourceLogs.ScopeLogs().Len(); i++ {
+				scopeLogs := resourceLogs.ScopeLogs().At(i)
+				scope := scopeRecords{scope: scopeLogs.Scope().Name()}
+				for i := 0; i < scopeLogs.LogRecords().Len(); i++ {
+					record := scopeLogs.LogRecords().At(i)
+					scope.records = append(scope.records, record.Body().Str())
+				}
+				scopes = append(scopes, scope)
+			}
+			merged = append(merged, resourceScopeRecords{serviceName: serviceName.Str(), scopes: scopes})
+		}
+		assert.Equal(t, []resourceScopeRecords{{
+			serviceName: "service0",
+			scopes: []scopeRecords{{
+				scope:   "scope0",
+				records: []string{"record0", "record1", "record2"},
+			}, {
+				scope:   "scope1",
+				records: []string{"record3"},
+			}},
+		}, {
+			serviceName: "service1",
+			scopes: []scopeRecords{{
+				scope:   "scope0",
+				records: []string{"record4", "record5"},
+			}},
+		}}, merged)
+	})
+}
+
+func newLogs() (plog.Logs, plog.LogRecordSlice, pcommon.Resource, pcommon.InstrumentationScope) {
+	logs := plog.NewLogs()
+	resourceLogs := logs.ResourceLogs().AppendEmpty()
+	scopeLogs := resourceLogs.ScopeLogs().AppendEmpty()
+	return logs, scopeLogs.LogRecords(), resourceLogs.Resource(), scopeLogs.Scope()
+}
+
+type unmarshalLogsFunc func([]byte) (plog.Logs, error)
+
+func (f unmarshalLogsFunc) UnmarshalLogs(data []byte) (plog.Logs, error) {
+	return f(data)
 }
