@@ -22,18 +22,18 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awsfirehosereceiver/internal/unmarshaler/unmarshalertest"
 )
 
-type recordConsumer struct {
+type metricsRecordConsumer struct {
 	result pmetric.Metrics
 }
 
-var _ consumer.Metrics = (*recordConsumer)(nil)
+var _ consumer.Metrics = (*metricsRecordConsumer)(nil)
 
-func (rc *recordConsumer) ConsumeMetrics(_ context.Context, metrics pmetric.Metrics) error {
+func (rc *metricsRecordConsumer) ConsumeMetrics(_ context.Context, metrics pmetric.Metrics) error {
 	rc.result = metrics
 	return nil
 }
 
-func (rc *recordConsumer) Capabilities() consumer.Capabilities {
+func (rc *metricsRecordConsumer) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: false}
 }
 
@@ -106,7 +106,7 @@ func TestMetricsReceiver_Start(t *testing.T) {
 	}
 }
 
-func TestMetricsConsumer(t *testing.T) {
+func TestMetricsConsumer_Errors(t *testing.T) {
 	testErr := errors.New("test error")
 	testCases := map[string]struct {
 		unmarshalerErr error
@@ -144,11 +144,13 @@ func TestMetricsConsumer(t *testing.T) {
 			require.Equal(t, testCase.wantErr, gotErr)
 		})
 	}
+}
 
+func TestMetricsConsumer(t *testing.T) {
 	t.Run("WithCommonAttributes", func(t *testing.T) {
 		base := pmetric.NewMetrics()
 		base.ResourceMetrics().AppendEmpty()
-		rc := recordConsumer{}
+		rc := metricsRecordConsumer{}
 		mc := &metricsConsumer{
 			unmarshaler: unmarshalertest.NewWithMetrics(base),
 			consumer:    &rc,
@@ -163,4 +165,139 @@ func TestMetricsConsumer(t *testing.T) {
 		gotRm := gotRms.At(0)
 		require.Equal(t, 1, gotRm.Resource().Attributes().Len())
 	})
+	t.Run("WithMultipleRecords", func(t *testing.T) {
+		// service0, scope0
+		metrics0, metricSlice0 := newMetrics("service0", "scope0")
+		_, sum0unit0 := addDeltaSumMetric(metricSlice0, "sum0", "unit0")
+		addSumDataPoint(sum0unit0, 1)
+
+		// service0, [scope0. scope1]
+		// these scopes should be merged into the above resource metrics
+		metrics1, metricSlice1 := newMetrics("service0", "scope0")
+		_, sum0unit0 = addDeltaSumMetric(metricSlice1, "sum0", "unit0")
+		addSumDataPoint(sum0unit0, 2)
+		_, sum0unit1 := addDeltaSumMetric(metricSlice1, "sum0", "unit1")
+		addSumDataPoint(sum0unit1, 3)
+		scopeMetrics1 := metrics1.ResourceMetrics().At(0).ScopeMetrics().AppendEmpty()
+		newScope("scope1").MoveTo(scopeMetrics1.Scope())
+		_, sum0unit0 = addDeltaSumMetric(scopeMetrics1.Metrics(), "sum0", "unit0")
+		addSumDataPoint(sum0unit0, 4)
+
+		// service1, scope0
+		metrics2, metricSlice2 := newMetrics("service1", "scope0")
+		_, sum0unit0 = addDeltaSumMetric(metricSlice2, "sum0", "unit0")
+		addSumDataPoint(sum0unit0, 5)
+		_, sum1unit0 := addDeltaSumMetric(metricSlice2, "sum1", "unit0")
+		addSumDataPoint(sum1unit0, 6)
+
+		metricsRemaining := []pmetric.Metrics{metrics0, metrics1, metrics2}
+		var unmarshaler unmarshalMetricsFunc = func(data []byte) (pmetric.Metrics, error) {
+			metrics := metricsRemaining[0]
+			metricsRemaining = metricsRemaining[1:]
+			return metrics, nil
+		}
+
+		rc := metricsRecordConsumer{}
+		lc := &metricsConsumer{unmarshaler: unmarshaler, consumer: &rc}
+		gotStatus, gotErr := lc.Consume(context.Background(), make([][]byte, len(metricsRemaining)), nil)
+		require.Equal(t, http.StatusOK, gotStatus)
+		require.NoError(t, gotErr)
+		assert.Equal(t, 6, rc.result.DataPointCount())        // data points are not aggregated
+		assert.Equal(t, 2, rc.result.ResourceMetrics().Len()) // service0, service1
+
+		type metric struct {
+			name       string
+			unit       string
+			datapoints []int64
+		}
+
+		type scopeMetrics struct {
+			scope   string
+			metrics []metric
+		}
+
+		type resourceScopeMetrics struct {
+			serviceName string
+			scopes      []scopeMetrics
+		}
+
+		var merged []resourceScopeMetrics
+		for i := 0; i < rc.result.ResourceMetrics().Len(); i++ {
+			resourceMetrics := rc.result.ResourceMetrics().At(i)
+			serviceName, ok := resourceMetrics.Resource().Attributes().Get("service.name")
+			require.True(t, ok)
+
+			var scopes []scopeMetrics
+			for i := 0; i < resourceMetrics.ScopeMetrics().Len(); i++ {
+				var scope scopeMetrics
+				scopeMetrics := resourceMetrics.ScopeMetrics().At(i)
+				scope.scope = scopeMetrics.Scope().Name()
+				for i := 0; i < scopeMetrics.Metrics().Len(); i++ {
+					m := scopeMetrics.Metrics().At(i)
+					metric := metric{name: m.Name(), unit: m.Unit()}
+					for i := 0; i < m.Sum().DataPoints().Len(); i++ {
+						dp := m.Sum().DataPoints().At(i)
+						metric.datapoints = append(metric.datapoints, dp.IntValue())
+					}
+					scope.metrics = append(scope.metrics, metric)
+				}
+				scopes = append(scopes, scope)
+			}
+			merged = append(merged, resourceScopeMetrics{serviceName: serviceName.Str(), scopes: scopes})
+		}
+		assert.Equal(t, []resourceScopeMetrics{{
+			serviceName: "service0",
+			scopes: []scopeMetrics{{
+				scope: "scope0",
+				metrics: []metric{
+					{name: "sum0", unit: "unit0", datapoints: []int64{1, 2}},
+					{name: "sum0", unit: "unit1", datapoints: []int64{3}},
+				},
+			}, {
+				scope: "scope1",
+				metrics: []metric{
+					{name: "sum0", unit: "unit0", datapoints: []int64{4}},
+				},
+			}},
+		}, {
+			serviceName: "service1",
+			scopes: []scopeMetrics{{
+				scope: "scope0",
+				metrics: []metric{
+					{name: "sum0", unit: "unit0", datapoints: []int64{5}},
+					{name: "sum1", unit: "unit0", datapoints: []int64{6}},
+				},
+			}},
+		}}, merged)
+	})
+}
+
+func newMetrics(serviceName, scopeName string) (pmetric.Metrics, pmetric.MetricSlice) {
+	metrics := pmetric.NewMetrics()
+	resourceMetrics := metrics.ResourceMetrics().AppendEmpty()
+	scopeMetrics := resourceMetrics.ScopeMetrics().AppendEmpty()
+	newResource(serviceName).MoveTo(resourceMetrics.Resource())
+	newScope(scopeName).MoveTo(scopeMetrics.Scope())
+	return metrics, scopeMetrics.Metrics()
+}
+
+func addDeltaSumMetric(metrics pmetric.MetricSlice, name, unit string) (pmetric.Metric, pmetric.Sum) {
+	m := metrics.AppendEmpty()
+	m.SetName(name)
+	m.SetUnit(unit)
+	sum := m.SetEmptySum()
+	sum.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+	return m, sum
+}
+
+func addSumDataPoint(sum pmetric.Sum, value int64) pmetric.NumberDataPoint {
+	dp := sum.DataPoints().AppendEmpty()
+	dp.SetIntValue(value)
+	return dp
+}
+
+type unmarshalMetricsFunc func([]byte) (pmetric.Metrics, error)
+
+func (f unmarshalMetricsFunc) UnmarshalMetrics(data []byte) (pmetric.Metrics, error) {
+	return f(data)
 }

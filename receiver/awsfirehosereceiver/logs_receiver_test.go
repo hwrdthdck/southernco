@@ -168,27 +168,19 @@ func TestLogsConsumer(t *testing.T) {
 		require.Equal(t, 1, gotRm.Resource().Attributes().Len())
 	})
 	t.Run("WithMultipleRecords", func(t *testing.T) {
-		// service0, scope0
-		logs0, logRecords0, resource0, scope0 := newLogs()
-		resource0.Attributes().PutStr("service.name", "service0")
-		scope0.SetName("scope0")
+		logs0, logRecords0 := newLogs("service0", "scope0")
 		logRecords0.AppendEmpty().Body().SetStr("record0")
 		logRecords0.AppendEmpty().Body().SetStr("record1")
 
 		// service0, [scope0. scope1]
 		// these scopes should be merged into the above resource logs
-		logs1, logRecords1, resource1, scope0 := newLogs()
-		resource1.Attributes().PutStr("service.name", "service0")
-		scope0.SetName("scope0")
+		logs1, logRecords1 := newLogs("service0", "scope0")
 		logRecords1.AppendEmpty().Body().SetStr("record2")
 		scopeLogs1 := logs1.ResourceLogs().At(0).ScopeLogs().AppendEmpty()
-		scopeLogs1.Scope().SetName("scope1")
+		newScope("scope1").MoveTo(scopeLogs1.Scope())
 		scopeLogs1.LogRecords().AppendEmpty().Body().SetStr("record3")
 
-		// service1, scope0
-		logs2, logRecords2, resource2, scope2 := newLogs()
-		resource2.Attributes().PutStr("service.name", "service1")
-		scope2.SetName("scope0")
+		logs2, logRecords2 := newLogs("service1", "scope0")
 		logRecords2.AppendEmpty().Body().SetStr("record4")
 		logRecords2.AppendEmpty().Body().SetStr("record5")
 
@@ -254,11 +246,25 @@ func TestLogsConsumer(t *testing.T) {
 	})
 }
 
-func newLogs() (plog.Logs, plog.LogRecordSlice, pcommon.Resource, pcommon.InstrumentationScope) {
+func newLogs(serviceName, scopeName string) (plog.Logs, plog.LogRecordSlice) {
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()
 	scopeLogs := resourceLogs.ScopeLogs().AppendEmpty()
-	return logs, scopeLogs.LogRecords(), resourceLogs.Resource(), scopeLogs.Scope()
+	newResource(serviceName).MoveTo(resourceLogs.Resource())
+	newScope(scopeName).MoveTo(scopeLogs.Scope())
+	return logs, scopeLogs.LogRecords()
+}
+
+func newResource(serviceName string) pcommon.Resource {
+	r := pcommon.NewResource()
+	r.Attributes().PutStr("service.name", serviceName)
+	return r
+}
+
+func newScope(scopeName string) pcommon.InstrumentationScope {
+	s := pcommon.NewInstrumentationScope()
+	s.SetName(scopeName)
+	return s
 }
 
 type unmarshalLogsFunc func([]byte) (plog.Logs, error)
