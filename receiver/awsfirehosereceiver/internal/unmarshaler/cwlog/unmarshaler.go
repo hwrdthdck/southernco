@@ -21,8 +21,7 @@ import (
 )
 
 const (
-	TypeStr         = "cwlogs"
-	recordDelimiter = "\n"
+	TypeStr = "cwlogs"
 
 	attributeAWSCloudWatchLogGroupName  = "aws.cloudwatch.log_group_name"
 	attributeAWSCloudWatchLogStreamName = "aws.cloudwatch.log_stream_name"
