@@ -64,6 +64,5 @@ func TestLoadConfigInvalid(t *testing.T) {
 	require.NoError(t, sub.Unmarshal(cfg))
 
 	err = component.ValidateConfig(cfg)
-	require.Error(t, err)
-	assert.EqualError(t, err, "record_type must not be set when encoding is set")
+	assert.Equal(t, errRecordTypeEncodingSet, err)
 }

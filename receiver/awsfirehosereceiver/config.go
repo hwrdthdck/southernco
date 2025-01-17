@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var errRecordTypeEncodingSet = errors.New("record_type must not be set when encoding is set")
+
 type Config struct {
 	// ServerConfig is used to set up the Firehose delivery
 	// endpoint. The Firehose delivery stream expects an HTTPS
