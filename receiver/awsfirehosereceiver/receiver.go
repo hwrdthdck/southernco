@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	jsoniter "github.com/json-iterator/go"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componentstatus"
 	"go.opentelemetry.io/collector/receiver"
@@ -175,14 +177,8 @@ func (fmr *firehoseReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := fmr.getBody(r)
-	if err != nil {
-		fmr.sendResponse(w, requestID, http.StatusBadRequest, err)
-		return
-	}
-
 	var fr firehoseRequest
-	if err = json.Unmarshal(body, &fr); err != nil {
+	if err := jsoniter.ConfigFastest.NewDecoder(r.Body).Decode(&fr); err != nil {
 		fmr.sendResponse(w, requestID, http.StatusBadRequest, err)
 		return
 	}
@@ -199,7 +195,7 @@ func (fmr *firehoseReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for index, record := range fr.Records {
 		if record.Data != "" {
 			var decoded []byte
-			decoded, err = base64.StdEncoding.DecodeString(record.Data)
+			decoded, err := base64.StdEncoding.DecodeString(record.Data)
 			if err != nil {
 				fmr.sendResponse(
 					w,

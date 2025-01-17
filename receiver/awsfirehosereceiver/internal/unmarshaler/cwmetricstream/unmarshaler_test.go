@@ -181,15 +181,15 @@ func TestSetResourceAttributes(t *testing.T) {
 	}
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
-			metric := cWMetric{
-				AccountID:        testAccountID,
-				Region:           testRegion,
-				MetricStreamName: testStreamName,
-				Namespace:        testCase.namespace,
+			resourceKey := resourceKey{
+				accountID:        testAccountID,
+				region:           testRegion,
+				metricStreamName: testStreamName,
+				namespace:        testCase.namespace,
 			}
 
 			resource := pcommon.NewResource()
-			setResourceAttributes(metric, resource)
+			setResourceAttributes(resourceKey, resource)
 			require.Equal(t, testCase.want, resource.Attributes().AsRaw())
 		})
 	}

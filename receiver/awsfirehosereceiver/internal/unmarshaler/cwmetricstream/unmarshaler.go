@@ -4,19 +4,17 @@
 package cwmetricstream // import "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awsfirehosereceiver/internal/unmarshaler/cwmetricstream"
 
 import (
+	"bufio"
 	"bytes"
-	"encoding/json"
 	"errors"
-	"io"
 	"strings"
 	"time"
 
+	jsoniter "github.com/json-iterator/go"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	conventions "go.opentelemetry.io/collector/semconv/v1.27.0"
 	"go.uber.org/zap"
-
-	expmetrics "github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics"
 )
 
 const (
@@ -48,16 +46,17 @@ func NewUnmarshaler(logger *zap.Logger) *Unmarshaler {
 // resourceMetricsBuilder to group them into a single pmetric.Metrics.
 // Skips invalid cWMetrics received in the record and
 func (u Unmarshaler) UnmarshalMetrics(record []byte) (pmetric.Metrics, error) {
-	metrics := pmetric.NewMetrics()
+	type metricKey struct {
+		name string
+		unit string
+	}
+	byResource := make(map[resourceKey]map[metricKey]pmetric.Metric)
 
 	// Multiple metrics in each record separated by newline character
-	decoder := json.NewDecoder(bytes.NewReader(record))
-	for datumIndex := 0; ; datumIndex++ {
+	scanner := bufio.NewScanner(bytes.NewReader(record))
+	for datumIndex := 0; scanner.Scan(); datumIndex++ {
 		var cwMetric cWMetric
-		if err := decoder.Decode(&cwMetric); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
+		if err := jsoniter.ConfigFastest.Unmarshal(scanner.Bytes(), &cwMetric); err != nil {
 			u.logger.Error(
 				"Unable to unmarshal input",
 				zap.Error(err),
@@ -73,14 +72,32 @@ func (u Unmarshaler) UnmarshalMetrics(record []byte) (pmetric.Metrics, error) {
 			continue
 		}
 
-		rm := metrics.ResourceMetrics().AppendEmpty()
-		setResourceAttributes(cwMetric, rm.Resource())
+		key := resourceKey{
+			metricStreamName: cwMetric.MetricStreamName,
+			namespace:        cwMetric.Namespace,
+			accountID:        cwMetric.AccountID,
+			region:           cwMetric.Region,
+		}
+		metrics, ok := byResource[key]
+		if !ok {
+			metrics = make(map[metricKey]pmetric.Metric)
+			byResource[key] = metrics
+		}
 
-		metric := rm.ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
-		metric.SetName(cwMetric.MetricName)
-		metric.SetUnit(cwMetric.Unit)
+		metricKey := metricKey{
+			name: cwMetric.MetricName,
+			unit: cwMetric.Unit,
+		}
+		metric, ok := metrics[metricKey]
+		if !ok {
+			metric = pmetric.NewMetric()
+			metric.SetName(metricKey.name)
+			metric.SetUnit(metricKey.unit)
+			metric.SetEmptySummary()
+			metrics[metricKey] = metric
+		}
 
-		dp := metric.SetEmptySummary().DataPoints().AppendEmpty()
+		dp := metric.Summary().DataPoints().AppendEmpty()
 		dp.SetTimestamp(pcommon.NewTimestampFromTime(time.UnixMilli(cwMetric.Timestamp)))
 		setDataPointAttributes(cwMetric, dp)
 		dp.SetCount(uint64(cwMetric.Value.Count))
@@ -92,18 +109,28 @@ func (u Unmarshaler) UnmarshalMetrics(record []byte) (pmetric.Metrics, error) {
 		maxQ.SetQuantile(1)
 		maxQ.SetValue(cwMetric.Value.Max)
 	}
-
-	if metrics.MetricCount() == 0 {
-		return metrics, errInvalidRecords
+	if err := scanner.Err(); err != nil {
+		return pmetric.Metrics{}, err
+	}
+	if len(byResource) == 0 {
+		return pmetric.Metrics{}, errInvalidRecords
 	}
 
-	metrics = expmetrics.Merge(pmetric.NewMetrics(), metrics)
+	metrics := pmetric.NewMetrics()
+	for resourceKey, metricsMap := range byResource {
+		rm := metrics.ResourceMetrics().AppendEmpty()
+		setResourceAttributes(resourceKey, rm.Resource())
+		scopeMetrics := rm.ScopeMetrics().AppendEmpty()
+		for _, metric := range metricsMap {
+			metric.MoveTo(scopeMetrics.Metrics().AppendEmpty())
+		}
+	}
 	return metrics, nil
 }
 
 // isValid validates that the cWMetric has been unmarshalled correctly.
 func (u Unmarshaler) isValid(metric cWMetric) bool {
-	return metric.MetricName != "" && metric.Namespace != "" && metric.Unit != "" && metric.Value != nil
+	return metric.MetricName != "" && metric.Namespace != "" && metric.Unit != "" && metric.Value.isSet
 }
 
 // Type of the serialized messages.
@@ -111,18 +138,25 @@ func (u Unmarshaler) Type() string {
 	return TypeStr
 }
 
+type resourceKey struct {
+	metricStreamName string
+	namespace        string
+	accountID        string
+	region           string
+}
+
 // setResourceAttributes sets attributes on a pcommon.Resource from a cwMetric.
-func setResourceAttributes(m cWMetric, resource pcommon.Resource) {
+func setResourceAttributes(key resourceKey, resource pcommon.Resource) {
 	attributes := resource.Attributes()
 	attributes.PutStr(conventions.AttributeCloudProvider, conventions.AttributeCloudProviderAWS)
-	attributes.PutStr(conventions.AttributeCloudAccountID, m.AccountID)
-	attributes.PutStr(conventions.AttributeCloudRegion, m.Region)
-	serviceNamespace, serviceName := toServiceAttributes(m.Namespace)
+	attributes.PutStr(conventions.AttributeCloudAccountID, key.accountID)
+	attributes.PutStr(conventions.AttributeCloudRegion, key.region)
+	serviceNamespace, serviceName := toServiceAttributes(key.namespace)
 	if serviceNamespace != "" {
 		attributes.PutStr(conventions.AttributeServiceNamespace, serviceNamespace)
 	}
 	attributes.PutStr(conventions.AttributeServiceName, serviceName)
-	attributes.PutStr(attributeAWSCloudWatchMetricStreamName, m.MetricStreamName)
+	attributes.PutStr(attributeAWSCloudWatchMetricStreamName, key.metricStreamName)
 }
 
 // toServiceAttributes splits the CloudWatch namespace into service namespace/name

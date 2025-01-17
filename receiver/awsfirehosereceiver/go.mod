@@ -4,6 +4,8 @@ go 1.22.0
 
 require (
 	github.com/gogo/protobuf v1.3.2
+	github.com/json-iterator/go v1.1.12
+	github.com/klauspost/compress v1.17.11
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.117.1-0.20250114172347-71aae791d7f8
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/pdatautil v0.117.1-0.20250114172347-71aae791d7f8
 	github.com/stretchr/testify v1.10.0
@@ -35,8 +37,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/knadh/koanf/maps v0.1.1 // indirect
 	github.com/knadh/koanf/providers/confmap v0.1.0 // indirect
 	github.com/knadh/koanf/v2 v2.1.2 // indirect
