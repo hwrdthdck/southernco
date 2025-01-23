@@ -467,6 +467,7 @@ Available Converters:
 - [Substring](#substring)
 - [Time](#time)
 - [ToKeyValueString](#tokeyvaluestring)
+- [ToUpperCase](#touppercase)
 - [TraceID](#traceid)
 - [TruncateTime](#truncatetime)
 - [Unix](#unix)
