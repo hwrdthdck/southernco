@@ -6,9 +6,10 @@ package filterconfig
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/filter/filterset"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/filter/filterset/regexp"
-	"github.com/stretchr/testify/require"
 )
 
 func Test_ValidateWithSpans(t *testing.T) {
