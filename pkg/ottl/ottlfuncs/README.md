@@ -2056,6 +2056,18 @@ Examples:
 - `ToKeyValueString(body)`
 - `ToKeyValueString(body, ":", ",", true)`
 
+### ToUpperCase
+
+`ToUpperCase(target)`
+
+The `ToUpperCase` Converter converts the `target` string into upper case.
+
+`target` is a string.
+
+Examples:
+
+- `ToUpperCase(metric.name)`
+
 ### TraceID
 
 `TraceID(bytes)`
