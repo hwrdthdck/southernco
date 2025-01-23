@@ -185,7 +185,7 @@ func Test_CreateMetricMatchPropertiesFromDefault(t *testing.T) {
 			},
 			want: &MetricMatchProperties{
 				MetricNames: []string{"kind"},
-				MatchType:   MetricMatchType(MetricRegexp),
+				MatchType:   MetricRegexp,
 				RegexpConfig: &regexp.Config{
 					CacheMaxNumEntries: 1,
 				},
