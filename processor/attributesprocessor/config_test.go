@@ -220,7 +220,7 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
-func TestMetricsUsedWithServices(t *testing.T) {
+func TestSpanConfigUsedWithmetrics(t *testing.T) {
 	cm, err := confmaptest.LoadConf(filepath.Join("testdata", "config.yaml"))
 	require.NoError(t, err)
 
@@ -237,5 +237,5 @@ func TestMetricsUsedWithServices(t *testing.T) {
 	sink := consumertest.MetricsSink{}
 
 	_, err = NewFactory().CreateMetrics(context.Background(), processortest.NewNopSettings(), cfg, &sink)
-	require.NoError(t, err)
+	require.Error(t, err)
 }

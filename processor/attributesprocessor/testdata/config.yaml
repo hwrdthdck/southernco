@@ -111,7 +111,6 @@ attributes/excludemulti:
     # match_type defines that "services" is an array of strings that must
     # match service name strictly.
     match_type: strict
-    log_severity_texts: [ "debug.*" ]
     # The Span service name must be equal to "svcA" or "svcB".
     services: ["svcA", "svcB"]
     attributes:
@@ -334,7 +333,7 @@ attributes/log_severity_regexp:
     # match_type defines that "services" is an array of regexp-es.
     match_type: regexp
     # The log severity text "debug.*" pattern.
-    
+    log_severity_texts: [ "debug.*" ]
   actions:
     - key: password
       action: update
