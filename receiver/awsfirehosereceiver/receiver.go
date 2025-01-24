@@ -9,13 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
+	jsoniter "github.com/json-iterator/go"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componentstatus"
 	"go.opentelemetry.io/collector/receiver"
@@ -31,7 +31,6 @@ const (
 )
 
 var (
-	errMissingHost              = errors.New("nil host")
 	errInvalidAccessKey         = errors.New("invalid firehose access key")
 	errInHeaderMissingRequestID = errors.New("missing request id in header")
 	errInBodyMissingRequestID   = errors.New("missing request id in body")
@@ -40,6 +39,8 @@ var (
 
 // The firehoseConsumer is responsible for using the unmarshaler and the consumer.
 type firehoseConsumer interface {
+	Start(context.Context, component.Host) error
+
 	// Consume unmarshalls and consumes the records.
 	Consume(ctx context.Context, records [][]byte, commonAttributes map[string]string) (int, error)
 }
@@ -110,8 +111,8 @@ var (
 // Start spins up the receiver's HTTP server and makes the receiver start
 // its processing.
 func (fmr *firehoseReceiver) Start(ctx context.Context, host component.Host) error {
-	if host == nil {
-		return errMissingHost
+	if err := fmr.consumer.Start(ctx, host); err != nil {
+		return err
 	}
 
 	var err error
@@ -174,14 +175,8 @@ func (fmr *firehoseReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := fmr.getBody(r)
-	if err != nil {
-		fmr.sendResponse(w, requestID, http.StatusBadRequest, err)
-		return
-	}
-
 	var fr firehoseRequest
-	if err = json.Unmarshal(body, &fr); err != nil {
+	if err := jsoniter.ConfigFastest.NewDecoder(r.Body).Decode(&fr); err != nil {
 		fmr.sendResponse(w, requestID, http.StatusBadRequest, err)
 		return
 	}
@@ -198,7 +193,7 @@ func (fmr *firehoseReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for index, record := range fr.Records {
 		if record.Data != "" {
 			var decoded []byte
-			decoded, err = base64.StdEncoding.DecodeString(record.Data)
+			decoded, err := base64.StdEncoding.DecodeString(record.Data)
 			if err != nil {
 				fmr.sendResponse(
 					w,
@@ -246,19 +241,6 @@ func (fmr *firehoseReceiver) validate(r *http.Request) (int, error) {
 	return http.StatusUnauthorized, errInvalidAccessKey
 }
 
-// getBody reads the body from the request as a slice of bytes.
-func (fmr *firehoseReceiver) getBody(r *http.Request) ([]byte, error) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-	err = r.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-	return body, nil
-}
-
 // getCommonAttributes unmarshalls the common attributes from the request header
 func (fmr *firehoseReceiver) getCommonAttributes(r *http.Request) (map[string]string, error) {
 	attributes := make(map[string]string)
@@ -290,4 +272,32 @@ func (fmr *firehoseReceiver) sendResponse(w http.ResponseWriter, requestID strin
 	if _, err = w.Write(payload); err != nil {
 		fmr.settings.Logger.Error("Failed to send response", zap.Error(err))
 	}
+}
+
+// loadEncodingExtension tries to load an available extension for the given encoding.
+func loadEncodingExtension[T any](host component.Host, encoding, signalType string) (T, error) {
+	var zero T
+	extensionID, err := encodingToComponentID(encoding)
+	if err != nil {
+		return zero, err
+	}
+	encodingExtension, ok := host.GetExtensions()[*extensionID]
+	if !ok {
+		return zero, fmt.Errorf("unknown encoding extension %q", encoding)
+	}
+	unmarshaler, ok := encodingExtension.(T)
+	if !ok {
+		return zero, fmt.Errorf("extension %q is not a %s unmarshaler", encoding, signalType)
+	}
+	return unmarshaler, nil
+}
+
+// encodingToComponentID converts an encoding string to a component ID using the given encoding as type.
+func encodingToComponentID(encoding string) (*component.ID, error) {
+	componentType, err := component.NewType(encoding)
+	if err != nil {
+		return nil, fmt.Errorf("invalid component type: %w", err)
+	}
+	id := component.NewID(componentType)
+	return &id, nil
 }
