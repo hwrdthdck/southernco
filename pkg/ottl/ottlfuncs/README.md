@@ -2067,7 +2067,7 @@ The `ToLowerCase` Converter converts the `target` string into lower case.
 
 Examples:
 
-- `ToLowerCase(metric.name)`
+- `ToLowerCase(metric.name)` where `metric.name` contains `MyMetricName`, which will be converted to `mymetricmame`
 
 ### TraceID
 
