@@ -2061,13 +2061,13 @@ Examples:
 
 `ToUpperCase(target)`
 
-The `ToUpperCase` Converter converts the `target` string into upper case.
+The `ToUpperCase` Converter converts the `target` string into upper case (e.g. `MyMetricName` to `MYMETRICNAME`).
 
 `target` is a string.
 
 Examples:
 
-- `ToUpperCase(metric.name)` where `metric.name` contains `MyMetricName`, which will be converted to `MYMETRICNAME`
+- `ToUpperCase(metric.name)`
 
 ### TraceID
 
