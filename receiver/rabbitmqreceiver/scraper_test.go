@@ -110,6 +110,7 @@ func TestScraperScrape(t *testing.T) {
 			desc: "Successful Queue Collection",
 			setupMockClient: func(t *testing.T) client {
 				mockClient := mocks.MockClient{}
+				// use helper function from client tests
 				data := loadAPIResponseData(t, queuesAPIResponseFile)
 				var queues []*models.Queue
 				err := json.Unmarshal(data, &queues)
