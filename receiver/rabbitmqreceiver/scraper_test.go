@@ -98,7 +98,7 @@ func TestScraperScrape(t *testing.T) {
 			setupMockClient: func(*testing.T) client {
 				mockClient := mocks.MockClient{}
 				mockClient.On("GetQueues", mock.Anything).Return(nil, errors.New("some api error"))
-				mockClient.On("GetNodes", mock.Anything).Return(nil, errors.New("some api error")) // Add this
+				mockClient.On("GetNodes", mock.Anything).Return(nil, errors.New("some api error"))
 				return &mockClient
 			},
 			expectedMetricGen: func(*testing.T) pmetric.Metrics {
@@ -110,7 +110,7 @@ func TestScraperScrape(t *testing.T) {
 			desc: "Successful Queue Collection",
 			setupMockClient: func(t *testing.T) client {
 				mockClient := mocks.MockClient{}
-				data := loadAPIResponseData(t, "get_queues_response.json")
+				data := loadAPIResponseData(t, queuesAPIResponseFile)
 				var queues []*models.Queue
 				err := json.Unmarshal(data, &queues)
 				require.NoError(t, err)
@@ -133,13 +133,13 @@ func TestScraperScrape(t *testing.T) {
 				mockClient := mocks.MockClient{}
 
 				// Mock data for nodes
-				nodeData := loadAPIResponseData(t, "get_nodes_response.json")
+				nodeData := loadAPIResponseData(t, nodesAPIResponseFile)
 				var nodes []*models.Node
 				err := json.Unmarshal(nodeData, &nodes)
 				require.NoError(t, err)
 
 				// Mock data for queues
-				queueData := loadAPIResponseData(t, "get_queues_response.json")
+				queueData := loadAPIResponseData(t, queuesAPIResponseFile)
 				var queues []*models.Queue
 				err = json.Unmarshal(queueData, &queues)
 				require.NoError(t, err)

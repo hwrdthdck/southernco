@@ -47,7 +47,6 @@ attributes:
     enum:
       - ready
       - unacknowledged
-
 metrics:
   rabbitmq.consumer.count:
     description: The number of consumers currently reading from the queue.
