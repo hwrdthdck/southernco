@@ -4,7 +4,6 @@
 package zipkinreceiver
 
 import (
-	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -28,7 +27,7 @@ func TestValidateConfig(t *testing.T) {
 		id             component.ID
 		disallowInline bool
 		expected       component.Config
-		wantErr        error
+		wantErr        string
 	}{
 		{
 			id:       component.NewID(metadata.Type),
@@ -96,12 +95,12 @@ func TestValidateConfig(t *testing.T) {
 		{
 			id:             component.NewIDWithName(metadata.Type, "deprecated"),
 			disallowInline: true,
-			wantErr:        fmt.Errorf("the server config setup is disabled, please use protocols::http or enable it by setting zipkinreceiver.httpDefaultProtocol.disallow feaure gate to false"),
+			wantErr:        "the server config setup is disabled, please use protocols::http or enable it by setting zipkinreceiver.httpDefaultProtocol.disallow feaure gate to false",
 		},
 		{
 			id:             component.NewIDWithName(metadata.Type, "deprecated"),
 			disallowInline: false,
-			wantErr:        fmt.Errorf("cannot use protocols::http together with default server config setup"),
+			wantErr:        "cannot use protocols::http together with default server config setup",
 		},
 	}
 
@@ -119,8 +118,8 @@ func TestValidateConfig(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, sub.Unmarshal(cfg))
 
-			if tt.wantErr != nil {
-				assert.Equal(t, tt.wantErr, component.ValidateConfig(cfg))
+			if tt.wantErr != "" {
+				assert.Equal(t, tt.wantErr, component.ValidateConfig(cfg).Error())
 			} else {
 				assert.NoError(t, component.ValidateConfig(cfg))
 				assert.Equal(t, tt.expected, cfg)
