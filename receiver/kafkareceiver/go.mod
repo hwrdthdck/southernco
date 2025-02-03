@@ -7,6 +7,7 @@ require (
 	github.com/apache/thrift v0.21.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/jaegertracing/jaeger v1.65.1-0.20250203121426-384203d31442
+	github.com/jaegertracing/jaeger-idl v0.5.0
 	github.com/json-iterator/go v1.1.12
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/kafkaexporter v0.118.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.118.0
@@ -66,7 +67,6 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
-	github.com/jaegertracing/jaeger-idl v0.5.0 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
