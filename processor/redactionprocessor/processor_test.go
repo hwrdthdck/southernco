@@ -18,31 +18,41 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+type testConfig struct {
+	allowed  map[string]pcommon.Value
+	ignored  map[string]pcommon.Value
+	redacted map[string]pcommon.Value
+	masked   map[string]pcommon.Value
+	config   *Config
+}
+
 // TestRedactUnknownAttributes validates that the processor deletes span
 // attributes that are not the allowed keys list
 func TestRedactUnknownAttributes(t *testing.T) {
-	config := &Config{
-		AllowedKeys: []string{"group", "id", "name"},
-	}
-	allowed := map[string]pcommon.Value{
-		"group": pcommon.NewValueStr("temporary"),
-		"id":    pcommon.NewValueInt(5),
-		"name":  pcommon.NewValueStr("placeholder"),
-	}
-	ignored := map[string]pcommon.Value{
-		"safe_attribute": pcommon.NewValueStr("4111111111111112"),
-	}
-	redacted := map[string]pcommon.Value{
-		"credit_card": pcommon.NewValueStr("4111111111111111"),
+	testConfig := testConfig{
+		config: &Config{
+			AllowedKeys: []string{"group", "id", "name"},
+		},
+		allowed: map[string]pcommon.Value{
+			"group": pcommon.NewValueStr("temporary"),
+			"id":    pcommon.NewValueInt(5),
+			"name":  pcommon.NewValueStr("placeholder"),
+		},
+		ignored: map[string]pcommon.Value{
+			"safe_attribute": pcommon.NewValueStr("4111111111111112"),
+		},
+		redacted: map[string]pcommon.Value{
+			"credit_card": pcommon.NewValueStr("4111111111111111"),
+		},
 	}
 
-	outTraces := runTest(t, allowed, redacted, nil, ignored, config)
-	outLogs := runLogsTest(t, allowed, redacted, nil, ignored, config)
-	outMetricsGauge := runMetricsTest(t, allowed, redacted, nil, ignored, config, pmetric.MetricTypeGauge)
-	outMetricsSum := runMetricsTest(t, allowed, redacted, nil, ignored, config, pmetric.MetricTypeSum)
-	outMetricsHistogram := runMetricsTest(t, allowed, redacted, nil, ignored, config, pmetric.MetricTypeHistogram)
-	outMetricsExponentialHistogram := runMetricsTest(t, allowed, redacted, nil, ignored, config, pmetric.MetricTypeExponentialHistogram)
-	outMetricsSummary := runMetricsTest(t, allowed, redacted, nil, ignored, config, pmetric.MetricTypeSummary)
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
 
 	attrs := []pcommon.Map{
 		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
@@ -55,12 +65,12 @@ func TestRedactUnknownAttributes(t *testing.T) {
 	}
 
 	for _, attr := range attrs {
-		for k, v := range allowed {
+		for k, v := range testConfig.allowed {
 			val, ok := attr.Get(k)
 			assert.True(t, ok)
 			assert.Equal(t, v.AsRaw(), val.AsRaw())
 		}
-		for k := range redacted {
+		for k := range testConfig.redacted {
 			_, ok := attr.Get(k)
 			assert.False(t, ok)
 		}
@@ -71,23 +81,25 @@ func TestRedactUnknownAttributes(t *testing.T) {
 // span attributes that are not the allowed keys list if Config.AllowAllKeys
 // is set to true
 func TestAllowAllKeys(t *testing.T) {
-	config := &Config{
-		AllowedKeys:  []string{"group", "id"},
-		AllowAllKeys: true,
-	}
-	allowed := map[string]pcommon.Value{
-		"group": pcommon.NewValueStr("temporary"),
-		"id":    pcommon.NewValueInt(5),
-		"name":  pcommon.NewValueStr("placeholder"),
+	testConfig := testConfig{
+		config: &Config{
+			AllowedKeys:  []string{"group", "id"},
+			AllowAllKeys: true,
+		},
+		allowed: map[string]pcommon.Value{
+			"group": pcommon.NewValueStr("temporary"),
+			"id":    pcommon.NewValueInt(5),
+			"name":  pcommon.NewValueStr("placeholder"),
+		},
 	}
 
-	outTraces := runTest(t, allowed, nil, nil, nil, config)
-	outLogs := runLogsTest(t, allowed, nil, nil, nil, config)
-	outMetricsGauge := runMetricsTest(t, allowed, nil, nil, nil, config, pmetric.MetricTypeGauge)
-	outMetricsSum := runMetricsTest(t, allowed, nil, nil, nil, config, pmetric.MetricTypeSum)
-	outMetricsHistogram := runMetricsTest(t, allowed, nil, nil, nil, config, pmetric.MetricTypeHistogram)
-	outMetricsExponentialHistogram := runMetricsTest(t, allowed, nil, nil, nil, config, pmetric.MetricTypeExponentialHistogram)
-	outMetricsSummary := runMetricsTest(t, allowed, nil, nil, nil, config, pmetric.MetricTypeSummary)
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
 
 	attrs := []pcommon.Map{
 		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
@@ -100,7 +112,7 @@ func TestAllowAllKeys(t *testing.T) {
 	}
 
 	for _, attr := range attrs {
-		for k, v := range allowed {
+		for k, v := range testConfig.allowed {
 			val, ok := attr.Get(k)
 			assert.True(t, ok)
 			assert.Equal(t, v.AsRaw(), val.AsRaw())
@@ -113,27 +125,29 @@ func TestAllowAllKeys(t *testing.T) {
 // TestAllowAllKeysMaskValues validates that the processor still redacts
 // span attribute values if Config.AllowAllKeys is set to true
 func TestAllowAllKeysMaskValues(t *testing.T) {
-	config := &Config{
-		AllowedKeys:   []string{"group", "id", "name"},
-		BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
-		AllowAllKeys:  true,
-	}
-	allowed := map[string]pcommon.Value{
-		"group": pcommon.NewValueStr("temporary"),
-		"id":    pcommon.NewValueInt(5),
-		"name":  pcommon.NewValueStr("placeholder"),
-	}
-	masked := map[string]pcommon.Value{
-		"credit_card": pcommon.NewValueStr("placeholder 4111111111111111"),
+	testConfig := testConfig{
+		config: &Config{
+			AllowedKeys:   []string{"group", "id", "name"},
+			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
+			AllowAllKeys:  true,
+		},
+		allowed: map[string]pcommon.Value{
+			"group": pcommon.NewValueStr("temporary"),
+			"id":    pcommon.NewValueInt(5),
+			"name":  pcommon.NewValueStr("placeholder"),
+		},
+		masked: map[string]pcommon.Value{
+			"credit_card": pcommon.NewValueStr("placeholder 4111111111111111"),
+		},
 	}
 
-	outTraces := runTest(t, allowed, nil, masked, nil, config)
-	outLogs := runLogsTest(t, allowed, nil, masked, nil, config)
-	outMetricsGauge := runMetricsTest(t, allowed, nil, masked, nil, config, pmetric.MetricTypeGauge)
-	outMetricsSum := runMetricsTest(t, allowed, nil, masked, nil, config, pmetric.MetricTypeSum)
-	outMetricsHistogram := runMetricsTest(t, allowed, nil, masked, nil, config, pmetric.MetricTypeHistogram)
-	outMetricsExponentialHistogram := runMetricsTest(t, allowed, nil, masked, nil, config, pmetric.MetricTypeExponentialHistogram)
-	outMetricsSummary := runMetricsTest(t, allowed, nil, masked, nil, config, pmetric.MetricTypeSummary)
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
 
 	attrs := []pcommon.Map{
 		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
@@ -146,7 +160,7 @@ func TestAllowAllKeysMaskValues(t *testing.T) {
 	}
 
 	for _, attr := range attrs {
-		for k, v := range allowed {
+		for k, v := range testConfig.allowed {
 			val, ok := attr.Get(k)
 			assert.True(t, ok)
 			assert.Equal(t, v.AsRaw(), val.AsRaw())
@@ -162,34 +176,36 @@ func TestAllowAllKeysMaskValues(t *testing.T) {
 // of any attributes it deleted to the new redaction.redacted.keys and
 // redaction.redacted.count span attributes while set to full debug output
 func TestRedactSummaryDebug(t *testing.T) {
-	config := &Config{
-		AllowedKeys:   []string{"id", "group", "name", "group.id", "member (id)"},
-		BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
-		IgnoredKeys:   []string{"safe_attribute"},
-		Summary:       "debug",
-	}
-	allowed := map[string]pcommon.Value{
-		"id":          pcommon.NewValueInt(5),
-		"group.id":    pcommon.NewValueStr("some.valid.id"),
-		"member (id)": pcommon.NewValueStr("some other valid id"),
-	}
-	masked := map[string]pcommon.Value{
-		"name": pcommon.NewValueStr("placeholder 4111111111111111"),
-	}
-	ignored := map[string]pcommon.Value{
-		"safe_attribute": pcommon.NewValueStr("harmless 4111111111111112"),
-	}
-	redacted := map[string]pcommon.Value{
-		"credit_card": pcommon.NewValueStr("4111111111111111"),
+	testConfig := testConfig{
+		config: &Config{
+			AllowedKeys:   []string{"id", "group", "name", "group.id", "member (id)"},
+			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
+			IgnoredKeys:   []string{"safe_attribute"},
+			Summary:       "debug",
+		},
+		allowed: map[string]pcommon.Value{
+			"id":          pcommon.NewValueInt(5),
+			"group.id":    pcommon.NewValueStr("some.valid.id"),
+			"member (id)": pcommon.NewValueStr("some other valid id"),
+		},
+		masked: map[string]pcommon.Value{
+			"name": pcommon.NewValueStr("placeholder 4111111111111111"),
+		},
+		ignored: map[string]pcommon.Value{
+			"safe_attribute": pcommon.NewValueStr("harmless 4111111111111112"),
+		},
+		redacted: map[string]pcommon.Value{
+			"credit_card": pcommon.NewValueStr("4111111111111111"),
+		},
 	}
 
-	outTraces := runTest(t, allowed, redacted, masked, ignored, config)
-	outLogs := runLogsTest(t, allowed, redacted, masked, ignored, config)
-	outMetricsGauge := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeGauge)
-	outMetricsSum := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeSum)
-	outMetricsHistogram := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeHistogram)
-	outMetricsExponentialHistogram := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeExponentialHistogram)
-	outMetricsSummary := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeSummary)
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
 
 	attrs := []pcommon.Map{
 		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
@@ -202,8 +218,8 @@ func TestRedactSummaryDebug(t *testing.T) {
 	}
 
 	for _, attr := range attrs {
-		deleted := make([]string, 0, len(redacted))
-		for k := range redacted {
+		deleted := make([]string, 0, len(testConfig.redacted))
+		for k := range testConfig.redacted {
 			_, ok := attr.Get(k)
 			assert.False(t, ok)
 			deleted = append(deleted, k)
@@ -218,7 +234,7 @@ func TestRedactSummaryDebug(t *testing.T) {
 
 		ignoredKeyCount, ok := attr.Get(ignoredKeyCount)
 		assert.True(t, ok)
-		assert.Equal(t, int64(len(ignored)), ignoredKeyCount.Int())
+		assert.Equal(t, int64(len(testConfig.ignored)), ignoredKeyCount.Int())
 
 		blockedKeys := []string{"name"}
 		maskedValues, ok := attr.Get(maskedValues)
@@ -237,32 +253,34 @@ func TestRedactSummaryDebug(t *testing.T) {
 // attribute (but not to redaction.redacted.keys) when set to the info level
 // of output
 func TestRedactSummaryInfo(t *testing.T) {
-	config := &Config{
-		AllowedKeys:   []string{"id", "name", "group"},
-		BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
-		IgnoredKeys:   []string{"safe_attribute"},
-		Summary:       "info",
-	}
-	allowed := map[string]pcommon.Value{
-		"id": pcommon.NewValueInt(5),
-	}
-	ignored := map[string]pcommon.Value{
-		"safe_attribute": pcommon.NewValueStr("harmless but suspicious 4111111111111141"),
-	}
-	masked := map[string]pcommon.Value{
-		"name": pcommon.NewValueStr("placeholder 4111111111111111"),
-	}
-	redacted := map[string]pcommon.Value{
-		"credit_card": pcommon.NewValueStr("4111111111111111"),
+	testConfig := testConfig{
+		config: &Config{
+			AllowedKeys:   []string{"id", "name", "group"},
+			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
+			IgnoredKeys:   []string{"safe_attribute"},
+			Summary:       "info",
+		},
+		allowed: map[string]pcommon.Value{
+			"id": pcommon.NewValueInt(5),
+		},
+		ignored: map[string]pcommon.Value{
+			"safe_attribute": pcommon.NewValueStr("harmless but suspicious 4111111111111141"),
+		},
+		masked: map[string]pcommon.Value{
+			"name": pcommon.NewValueStr("placeholder 4111111111111111"),
+		},
+		redacted: map[string]pcommon.Value{
+			"credit_card": pcommon.NewValueStr("4111111111111111"),
+		},
 	}
 
-	outTraces := runTest(t, allowed, redacted, masked, ignored, config)
-	outLogs := runLogsTest(t, allowed, redacted, masked, ignored, config)
-	outMetricsGauge := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeGauge)
-	outMetricsSum := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeSum)
-	outMetricsHistogram := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeHistogram)
-	outMetricsExponentialHistogram := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeExponentialHistogram)
-	outMetricsSummary := runMetricsTest(t, allowed, redacted, masked, ignored, config, pmetric.MetricTypeSummary)
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
 
 	attrs := []pcommon.Map{
 		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
@@ -275,8 +293,8 @@ func TestRedactSummaryInfo(t *testing.T) {
 	}
 
 	for _, attr := range attrs {
-		deleted := make([]string, 0, len(redacted))
-		for k := range redacted {
+		deleted := make([]string, 0, len(testConfig.redacted))
+		for k := range testConfig.redacted {
 			_, ok := attr.Get(k)
 			assert.False(t, ok)
 			deleted = append(deleted, k)
@@ -306,28 +324,30 @@ func TestRedactSummaryInfo(t *testing.T) {
 // TestRedactSummarySilent validates that the processor does not create the
 // summary attributes when set to silent
 func TestRedactSummarySilent(t *testing.T) {
-	config := &Config{
-		AllowedKeys:   []string{"id", "name", "group"},
-		BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
-		Summary:       "silent",
-	}
-	allowed := map[string]pcommon.Value{
-		"id": pcommon.NewValueInt(5),
-	}
-	masked := map[string]pcommon.Value{
-		"name": pcommon.NewValueStr("placeholder 4111111111111111"),
-	}
-	redacted := map[string]pcommon.Value{
-		"credit_card": pcommon.NewValueStr("4111111111111111"),
+	testConfig := testConfig{
+		config: &Config{
+			AllowedKeys:   []string{"id", "name", "group"},
+			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
+			Summary:       "silent",
+		},
+		allowed: map[string]pcommon.Value{
+			"id": pcommon.NewValueInt(5),
+		},
+		masked: map[string]pcommon.Value{
+			"name": pcommon.NewValueStr("placeholder 4111111111111111"),
+		},
+		redacted: map[string]pcommon.Value{
+			"credit_card": pcommon.NewValueStr("4111111111111111"),
+		},
 	}
 
-	outTraces := runTest(t, allowed, redacted, masked, nil, config)
-	outLogs := runLogsTest(t, allowed, redacted, masked, nil, config)
-	outMetricsGauge := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeGauge)
-	outMetricsSum := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeSum)
-	outMetricsHistogram := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeHistogram)
-	outMetricsExponentialHistogram := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeExponentialHistogram)
-	outMetricsSummary := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeSummary)
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
 
 	attrs := []pcommon.Map{
 		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
@@ -340,7 +360,7 @@ func TestRedactSummarySilent(t *testing.T) {
 	}
 
 	for _, attr := range attrs {
-		for k := range redacted {
+		for k := range testConfig.redacted {
 			_, ok := attr.Get(k)
 			assert.False(t, ok)
 		}
@@ -360,24 +380,26 @@ func TestRedactSummarySilent(t *testing.T) {
 // TestRedactSummaryDefault validates that the processor does not create the
 // summary attributes by default
 func TestRedactSummaryDefault(t *testing.T) {
-	config := &Config{AllowedKeys: []string{"id", "name", "group"}}
-	allowed := map[string]pcommon.Value{
-		"id": pcommon.NewValueInt(5),
-	}
-	ignored := map[string]pcommon.Value{
-		"internal": pcommon.NewValueStr("a harmless 12 digits 4111111111111113"),
-	}
-	masked := map[string]pcommon.Value{
-		"name": pcommon.NewValueStr("placeholder 4111111111111111"),
+	testConfig := testConfig{
+		config: &Config{AllowedKeys: []string{"id", "name", "group"}},
+		allowed: map[string]pcommon.Value{
+			"id": pcommon.NewValueInt(5),
+		},
+		ignored: map[string]pcommon.Value{
+			"internal": pcommon.NewValueStr("a harmless 12 digits 4111111111111113"),
+		},
+		masked: map[string]pcommon.Value{
+			"name": pcommon.NewValueStr("placeholder 4111111111111111"),
+		},
 	}
 
-	outTraces := runTest(t, allowed, nil, masked, ignored, config)
-	outLogs := runLogsTest(t, allowed, nil, masked, ignored, config)
-	outMetricsGauge := runMetricsTest(t, allowed, nil, masked, ignored, config, pmetric.MetricTypeGauge)
-	outMetricsSum := runMetricsTest(t, allowed, nil, masked, ignored, config, pmetric.MetricTypeSum)
-	outMetricsHistogram := runMetricsTest(t, allowed, nil, masked, ignored, config, pmetric.MetricTypeHistogram)
-	outMetricsExponentialHistogram := runMetricsTest(t, allowed, nil, masked, ignored, config, pmetric.MetricTypeExponentialHistogram)
-	outMetricsSummary := runMetricsTest(t, allowed, nil, masked, ignored, config, pmetric.MetricTypeSummary)
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
 
 	attrs := []pcommon.Map{
 		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
@@ -406,29 +428,31 @@ func TestRedactSummaryDefault(t *testing.T) {
 // TestMultipleBlockValues validates that the processor can block multiple
 // patterns
 func TestMultipleBlockValues(t *testing.T) {
-	config := &Config{
-		AllowedKeys:   []string{"id", "name", "mystery"},
-		BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?", "(5[1-5][0-9]{3})"},
-		Summary:       "debug",
-	}
-	allowed := map[string]pcommon.Value{
-		"id":      pcommon.NewValueInt(5),
-		"mystery": pcommon.NewValueStr("mystery 52000"),
-	}
-	masked := map[string]pcommon.Value{
-		"name": pcommon.NewValueStr("placeholder 4111111111111111 52000"),
-	}
-	redacted := map[string]pcommon.Value{
-		"credit_card": pcommon.NewValueStr("4111111111111111"),
+	testConfig := testConfig{
+		config: &Config{
+			AllowedKeys:   []string{"id", "name", "mystery"},
+			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?", "(5[1-5][0-9]{3})"},
+			Summary:       "debug",
+		},
+		allowed: map[string]pcommon.Value{
+			"id":      pcommon.NewValueInt(5),
+			"mystery": pcommon.NewValueStr("mystery 52000"),
+		},
+		masked: map[string]pcommon.Value{
+			"name": pcommon.NewValueStr("placeholder 4111111111111111 52000"),
+		},
+		redacted: map[string]pcommon.Value{
+			"credit_card": pcommon.NewValueStr("4111111111111111"),
+		},
 	}
 
-	outTraces := runTest(t, allowed, redacted, masked, nil, config)
-	outLogs := runLogsTest(t, allowed, redacted, masked, nil, config)
-	outMetricsGauge := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeGauge)
-	outMetricsSum := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeSum)
-	outMetricsHistogram := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeHistogram)
-	outMetricsExponentialHistogram := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeExponentialHistogram)
-	outMetricsSummary := runMetricsTest(t, allowed, redacted, masked, nil, config, pmetric.MetricTypeSummary)
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
 
 	attrs := []pcommon.Map{
 		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
@@ -441,8 +465,8 @@ func TestMultipleBlockValues(t *testing.T) {
 	}
 
 	for _, attr := range attrs {
-		deleted := make([]string, 0, len(redacted))
-		for k := range redacted {
+		deleted := make([]string, 0, len(testConfig.redacted))
+		for k := range testConfig.redacted {
 			_, ok := attr.Get(k)
 			assert.False(t, ok)
 			deleted = append(deleted, k)
@@ -513,11 +537,7 @@ func TestProcessAttrsAppliedTwice(t *testing.T) {
 // runTest transforms the test input data and passes it through the processor
 func runTest(
 	t *testing.T,
-	allowed map[string]pcommon.Value,
-	redacted map[string]pcommon.Value,
-	masked map[string]pcommon.Value,
-	ignored map[string]pcommon.Value,
-	config *Config,
+	cfg testConfig,
 ) ptrace.Traces {
 	inBatch := ptrace.NewTraces()
 	rs := inBatch.ResourceSpans().AppendEmpty()
@@ -529,17 +549,17 @@ func runTest(
 	span.SetName("first-batch-first-span")
 	span.SetTraceID([16]byte{1, 2, 3, 4})
 
-	length := len(allowed) + len(masked) + len(redacted) + len(ignored)
-	for k, v := range allowed {
+	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored)
+	for k, v := range cfg.allowed {
 		v.CopyTo(span.Attributes().PutEmpty(k))
 	}
-	for k, v := range masked {
+	for k, v := range cfg.masked {
 		v.CopyTo(span.Attributes().PutEmpty(k))
 	}
-	for k, v := range redacted {
+	for k, v := range cfg.redacted {
 		v.CopyTo(span.Attributes().PutEmpty(k))
 	}
-	for k, v := range ignored {
+	for k, v := range cfg.ignored {
 		v.CopyTo(span.Attributes().PutEmpty(k))
 	}
 
@@ -549,7 +569,7 @@ func runTest(
 
 	// test
 	ctx := context.Background()
-	processor, err := newRedaction(ctx, config, zaptest.NewLogger(t))
+	processor, err := newRedaction(ctx, cfg.config, zaptest.NewLogger(t))
 	assert.NoError(t, err)
 	outBatch, err := processor.processTraces(ctx, inBatch)
 
@@ -561,11 +581,7 @@ func runTest(
 // runLogsTest transforms the test input log data and passes it through the processor
 func runLogsTest(
 	t *testing.T,
-	allowed map[string]pcommon.Value,
-	redacted map[string]pcommon.Value,
-	masked map[string]pcommon.Value,
-	ignored map[string]pcommon.Value,
-	config *Config,
+	cfg testConfig,
 ) plog.Logs {
 	inBatch := plog.NewLogs()
 	rl := inBatch.ResourceLogs().AppendEmpty()
@@ -578,17 +594,17 @@ func runLogsTest(
 	logEntry.Body().SetStr("first-batch-first-logEntry")
 	logEntry.SetTraceID([16]byte{1, 2, 3, 4})
 
-	length := len(allowed) + len(masked) + len(redacted) + len(ignored)
-	for k, v := range allowed {
+	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored)
+	for k, v := range cfg.allowed {
 		v.CopyTo(logEntry.Attributes().PutEmpty(k))
 	}
-	for k, v := range masked {
+	for k, v := range cfg.masked {
 		v.CopyTo(logEntry.Attributes().PutEmpty(k))
 	}
-	for k, v := range redacted {
+	for k, v := range cfg.redacted {
 		v.CopyTo(logEntry.Attributes().PutEmpty(k))
 	}
-	for k, v := range ignored {
+	for k, v := range cfg.ignored {
 		v.CopyTo(logEntry.Attributes().PutEmpty(k))
 	}
 
@@ -598,7 +614,7 @@ func runLogsTest(
 
 	// test
 	ctx := context.Background()
-	processor, err := newRedaction(ctx, config, zaptest.NewLogger(t))
+	processor, err := newRedaction(ctx, cfg.config, zaptest.NewLogger(t))
 	assert.NoError(t, err)
 	outBatch, err := processor.processLogs(ctx, inBatch)
 
@@ -610,11 +626,7 @@ func runLogsTest(
 // runMetricsTest transforms the test input metric data and passes it through the processor
 func runMetricsTest(
 	t *testing.T,
-	allowed map[string]pcommon.Value,
-	redacted map[string]pcommon.Value,
-	masked map[string]pcommon.Value,
-	ignored map[string]pcommon.Value,
-	config *Config,
+	cfg testConfig,
 	metricType pmetric.MetricType,
 ) pmetric.Metrics {
 	inBatch := pmetric.NewMetrics()
@@ -626,7 +638,7 @@ func runMetricsTest(
 	metric := ils.Metrics().AppendEmpty()
 	metric.SetDescription("first-batch-first-metric")
 
-	length := len(allowed) + len(masked) + len(redacted) + len(ignored)
+	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored)
 
 	var dataPointAttrs pcommon.Map
 	switch metricType {
@@ -642,19 +654,19 @@ func runMetricsTest(
 		dataPointAttrs = metric.SetEmptySummary().DataPoints().AppendEmpty().Attributes()
 	case pmetric.MetricTypeEmpty:
 	}
-	for k, v := range allowed {
+	for k, v := range cfg.allowed {
 		v.CopyTo(dataPointAttrs.PutEmpty(k))
 		v.CopyTo(rl.Resource().Attributes().PutEmpty(k))
 	}
-	for k, v := range masked {
+	for k, v := range cfg.masked {
 		v.CopyTo(dataPointAttrs.PutEmpty(k))
 		v.CopyTo(rl.Resource().Attributes().PutEmpty(k))
 	}
-	for k, v := range redacted {
+	for k, v := range cfg.redacted {
 		v.CopyTo(dataPointAttrs.PutEmpty(k))
 		v.CopyTo(rl.Resource().Attributes().PutEmpty(k))
 	}
-	for k, v := range ignored {
+	for k, v := range cfg.ignored {
 		v.CopyTo(dataPointAttrs.PutEmpty(k))
 		v.CopyTo(rl.Resource().Attributes().PutEmpty(k))
 	}
@@ -664,7 +676,7 @@ func runMetricsTest(
 
 	// test
 	ctx := context.Background()
-	processor, err := newRedaction(ctx, config, zaptest.NewLogger(t))
+	processor, err := newRedaction(ctx, cfg.config, zaptest.NewLogger(t))
 	assert.NoError(t, err)
 	outBatch, err := processor.processMetrics(ctx, inBatch)
 

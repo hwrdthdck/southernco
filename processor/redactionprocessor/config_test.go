@@ -4,6 +4,7 @@
 package redactionprocessor
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -54,6 +55,38 @@ func TestLoadConfig(t *testing.T) {
 
 			assert.NoError(t, component.ValidateConfig(cfg))
 			assert.Equal(t, tt.expected, cfg)
+		})
+	}
+}
+
+func TestValidateConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      Config
+		expected error
+	}{
+		{
+			name: "valid",
+			cfg: Config{
+				HashFunction: MD5,
+			},
+		},
+		{
+			name: "empty",
+			cfg:  Config{},
+		},
+		{
+			name: "invalid",
+			cfg: Config{
+				HashFunction: "hash",
+			},
+			expected: errors.New("unsupported hash function: 'hash'. Supported functions are: 'md5', 'sha1', 'sha3'"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.cfg.Validate())
 		})
 	}
 }
