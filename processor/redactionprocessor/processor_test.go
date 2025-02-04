@@ -18,18 +18,19 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-type testConfig struct {
-	allowed  map[string]pcommon.Value
-	ignored  map[string]pcommon.Value
-	redacted map[string]pcommon.Value
-	masked   map[string]pcommon.Value
-	config   *Config
+type TestConfig struct {
+	allowed     map[string]pcommon.Value
+	ignored     map[string]pcommon.Value
+	redacted    map[string]pcommon.Value
+	masked      map[string]pcommon.Value
+	blockedKeys map[string]pcommon.Value
+	config      *Config
 }
 
 // TestRedactUnknownAttributes validates that the processor deletes span
 // attributes that are not the allowed keys list
 func TestRedactUnknownAttributes(t *testing.T) {
-	testConfig := testConfig{
+	testConfig := TestConfig{
 		config: &Config{
 			AllowedKeys: []string{"group", "id", "name"},
 		},
@@ -81,7 +82,7 @@ func TestRedactUnknownAttributes(t *testing.T) {
 // span attributes that are not the allowed keys list if Config.AllowAllKeys
 // is set to true
 func TestAllowAllKeys(t *testing.T) {
-	testConfig := testConfig{
+	testConfig := TestConfig{
 		config: &Config{
 			AllowedKeys:  []string{"group", "id"},
 			AllowAllKeys: true,
@@ -125,7 +126,7 @@ func TestAllowAllKeys(t *testing.T) {
 // TestAllowAllKeysMaskValues validates that the processor still redacts
 // span attribute values if Config.AllowAllKeys is set to true
 func TestAllowAllKeysMaskValues(t *testing.T) {
-	testConfig := testConfig{
+	testConfig := TestConfig{
 		config: &Config{
 			AllowedKeys:   []string{"group", "id", "name"},
 			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
@@ -176,12 +177,13 @@ func TestAllowAllKeysMaskValues(t *testing.T) {
 // of any attributes it deleted to the new redaction.redacted.keys and
 // redaction.redacted.count span attributes while set to full debug output
 func TestRedactSummaryDebug(t *testing.T) {
-	testConfig := testConfig{
+	testConfig := TestConfig{
 		config: &Config{
-			AllowedKeys:   []string{"id", "group", "name", "group.id", "member (id)"},
-			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
-			IgnoredKeys:   []string{"safe_attribute"},
-			Summary:       "debug",
+			AllowedKeys:        []string{"id", "group", "name", "group.id", "member (id)", "token_some", "api_key_some"},
+			BlockedValues:      []string{"4[0-9]{12}(?:[0-9]{3})?"},
+			IgnoredKeys:        []string{"safe_attribute"},
+			BlockedKeyPatterns: []string{".*token.*", ".*api_key.*"},
+			Summary:            "debug",
 		},
 		allowed: map[string]pcommon.Value{
 			"id":          pcommon.NewValueInt(5),
@@ -196,6 +198,10 @@ func TestRedactSummaryDebug(t *testing.T) {
 		},
 		redacted: map[string]pcommon.Value{
 			"credit_card": pcommon.NewValueStr("4111111111111111"),
+		},
+		blockedKeys: map[string]pcommon.Value{
+			"token_some":   pcommon.NewValueStr("tokenize"),
+			"api_key_some": pcommon.NewValueStr("apinize"),
 		},
 	}
 
@@ -236,15 +242,102 @@ func TestRedactSummaryDebug(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, int64(len(testConfig.ignored)), ignoredKeyCount.Int())
 
-		blockedKeys := []string{"name"}
+		blockedKeys := []string{"api_key_some", "name", "token_some"}
 		maskedValues, ok := attr.Get(maskedValues)
 		assert.True(t, ok)
 		assert.Equal(t, strings.Join(blockedKeys, ","), maskedValues.Str())
 		maskedValueCount, ok := attr.Get(maskedValueCount)
 		assert.True(t, ok)
-		assert.Equal(t, int64(1), maskedValueCount.Int())
+		assert.Equal(t, int64(3), maskedValueCount.Int())
 		value, _ := attr.Get("name")
 		assert.Equal(t, "placeholder ****", value.Str())
+		value, _ = attr.Get("api_key_some")
+		assert.Equal(t, "****", value.Str())
+		value, _ = attr.Get("token_some")
+		assert.Equal(t, "****", value.Str())
+	}
+}
+
+func TestRedactSummaryDebugHashMD5(t *testing.T) {
+	testConfig := TestConfig{
+		config: &Config{
+			AllowedKeys:        []string{"id", "group", "name", "group.id", "member (id)", "token_some", "api_key_some"},
+			BlockedValues:      []string{"4[0-9]{12}(?:[0-9]{3})?"},
+			HashFunction:       MD5,
+			IgnoredKeys:        []string{"safe_attribute"},
+			BlockedKeyPatterns: []string{".*token.*", ".*api_key.*"},
+			Summary:            "debug",
+		},
+		allowed: map[string]pcommon.Value{
+			"id":          pcommon.NewValueInt(5),
+			"group.id":    pcommon.NewValueStr("some.valid.id"),
+			"member (id)": pcommon.NewValueStr("some other valid id"),
+		},
+		masked: map[string]pcommon.Value{
+			"name": pcommon.NewValueStr("placeholder 4111111111111111"),
+		},
+		ignored: map[string]pcommon.Value{
+			"safe_attribute": pcommon.NewValueStr("harmless 4111111111111112"),
+		},
+		redacted: map[string]pcommon.Value{
+			"credit_card": pcommon.NewValueStr("4111111111111111"),
+		},
+		blockedKeys: map[string]pcommon.Value{
+			"token_some":   pcommon.NewValueStr("tokenize"),
+			"api_key_some": pcommon.NewValueStr("apinize"),
+		},
+	}
+
+	outTraces := runTest(t, testConfig)
+	outLogs := runLogsTest(t, testConfig)
+	outMetricsGauge := runMetricsTest(t, testConfig, pmetric.MetricTypeGauge)
+	outMetricsSum := runMetricsTest(t, testConfig, pmetric.MetricTypeSum)
+	outMetricsHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeHistogram)
+	outMetricsExponentialHistogram := runMetricsTest(t, testConfig, pmetric.MetricTypeExponentialHistogram)
+	outMetricsSummary := runMetricsTest(t, testConfig, pmetric.MetricTypeSummary)
+
+	attrs := []pcommon.Map{
+		outTraces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes(),
+		outLogs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Attributes(),
+		outMetricsGauge.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Gauge().DataPoints().At(0).Attributes(),
+		outMetricsSum.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Sum().DataPoints().At(0).Attributes(),
+		outMetricsHistogram.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Histogram().DataPoints().At(0).Attributes(),
+		outMetricsExponentialHistogram.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).ExponentialHistogram().DataPoints().At(0).Attributes(),
+		outMetricsSummary.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Summary().DataPoints().At(0).Attributes(),
+	}
+
+	for _, attr := range attrs {
+		deleted := make([]string, 0, len(testConfig.redacted))
+		for k := range testConfig.redacted {
+			_, ok := attr.Get(k)
+			assert.False(t, ok)
+			deleted = append(deleted, k)
+		}
+		maskedKeys, ok := attr.Get(redactedKeys)
+		assert.True(t, ok)
+		sort.Strings(deleted)
+		assert.Equal(t, strings.Join(deleted, ","), maskedKeys.Str())
+		maskedKeyCount, ok := attr.Get(redactedKeyCount)
+		assert.True(t, ok)
+		assert.Equal(t, int64(len(deleted)), maskedKeyCount.Int())
+
+		ignoredKeyCount, ok := attr.Get(ignoredKeyCount)
+		assert.True(t, ok)
+		assert.Equal(t, int64(len(testConfig.ignored)), ignoredKeyCount.Int())
+
+		blockedKeys := []string{"api_key_some", "name", "token_some"}
+		maskedValues, ok := attr.Get(maskedValues)
+		assert.True(t, ok)
+		assert.Equal(t, strings.Join(blockedKeys, ","), maskedValues.Str())
+		maskedValueCount, ok := attr.Get(maskedValueCount)
+		assert.True(t, ok)
+		assert.Equal(t, int64(3), maskedValueCount.Int())
+		value, _ := attr.Get("name")
+		assert.Equal(t, "placeholder 5910f4ea0062a0e29afd3dccc741e3ce", value.Str())
+		value, _ = attr.Get("api_key_some")
+		assert.Equal(t, "93a699237950bde9eb9d25c7ead025f3", value.Str())
+		value, _ = attr.Get("token_some")
+		assert.Equal(t, "77e9ef3680c5518785ef0121d3884c3d", value.Str())
 	}
 }
 
@@ -253,7 +346,7 @@ func TestRedactSummaryDebug(t *testing.T) {
 // attribute (but not to redaction.redacted.keys) when set to the info level
 // of output
 func TestRedactSummaryInfo(t *testing.T) {
-	testConfig := testConfig{
+	testConfig := TestConfig{
 		config: &Config{
 			AllowedKeys:   []string{"id", "name", "group"},
 			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
@@ -324,7 +417,7 @@ func TestRedactSummaryInfo(t *testing.T) {
 // TestRedactSummarySilent validates that the processor does not create the
 // summary attributes when set to silent
 func TestRedactSummarySilent(t *testing.T) {
-	testConfig := testConfig{
+	testConfig := TestConfig{
 		config: &Config{
 			AllowedKeys:   []string{"id", "name", "group"},
 			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?"},
@@ -380,7 +473,7 @@ func TestRedactSummarySilent(t *testing.T) {
 // TestRedactSummaryDefault validates that the processor does not create the
 // summary attributes by default
 func TestRedactSummaryDefault(t *testing.T) {
-	testConfig := testConfig{
+	testConfig := TestConfig{
 		config: &Config{AllowedKeys: []string{"id", "name", "group"}},
 		allowed: map[string]pcommon.Value{
 			"id": pcommon.NewValueInt(5),
@@ -428,7 +521,7 @@ func TestRedactSummaryDefault(t *testing.T) {
 // TestMultipleBlockValues validates that the processor can block multiple
 // patterns
 func TestMultipleBlockValues(t *testing.T) {
-	testConfig := testConfig{
+	testConfig := TestConfig{
 		config: &Config{
 			AllowedKeys:   []string{"id", "name", "mystery"},
 			BlockedValues: []string{"4[0-9]{12}(?:[0-9]{3})?", "(5[1-5][0-9]{3})"},
@@ -537,7 +630,7 @@ func TestProcessAttrsAppliedTwice(t *testing.T) {
 // runTest transforms the test input data and passes it through the processor
 func runTest(
 	t *testing.T,
-	cfg testConfig,
+	cfg TestConfig,
 ) ptrace.Traces {
 	inBatch := ptrace.NewTraces()
 	rs := inBatch.ResourceSpans().AppendEmpty()
@@ -549,11 +642,14 @@ func runTest(
 	span.SetName("first-batch-first-span")
 	span.SetTraceID([16]byte{1, 2, 3, 4})
 
-	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored)
+	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored) + len(cfg.blockedKeys)
 	for k, v := range cfg.allowed {
 		v.CopyTo(span.Attributes().PutEmpty(k))
 	}
 	for k, v := range cfg.masked {
+		v.CopyTo(span.Attributes().PutEmpty(k))
+	}
+	for k, v := range cfg.blockedKeys {
 		v.CopyTo(span.Attributes().PutEmpty(k))
 	}
 	for k, v := range cfg.redacted {
@@ -581,7 +677,7 @@ func runTest(
 // runLogsTest transforms the test input log data and passes it through the processor
 func runLogsTest(
 	t *testing.T,
-	cfg testConfig,
+	cfg TestConfig,
 ) plog.Logs {
 	inBatch := plog.NewLogs()
 	rl := inBatch.ResourceLogs().AppendEmpty()
@@ -594,11 +690,14 @@ func runLogsTest(
 	logEntry.Body().SetStr("first-batch-first-logEntry")
 	logEntry.SetTraceID([16]byte{1, 2, 3, 4})
 
-	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored)
+	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored) + len(cfg.blockedKeys)
 	for k, v := range cfg.allowed {
 		v.CopyTo(logEntry.Attributes().PutEmpty(k))
 	}
 	for k, v := range cfg.masked {
+		v.CopyTo(logEntry.Attributes().PutEmpty(k))
+	}
+	for k, v := range cfg.blockedKeys {
 		v.CopyTo(logEntry.Attributes().PutEmpty(k))
 	}
 	for k, v := range cfg.redacted {
@@ -626,7 +725,7 @@ func runLogsTest(
 // runMetricsTest transforms the test input metric data and passes it through the processor
 func runMetricsTest(
 	t *testing.T,
-	cfg testConfig,
+	cfg TestConfig,
 	metricType pmetric.MetricType,
 ) pmetric.Metrics {
 	inBatch := pmetric.NewMetrics()
@@ -638,7 +737,7 @@ func runMetricsTest(
 	metric := ils.Metrics().AppendEmpty()
 	metric.SetDescription("first-batch-first-metric")
 
-	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored)
+	length := len(cfg.allowed) + len(cfg.masked) + len(cfg.redacted) + len(cfg.ignored) + len(cfg.blockedKeys)
 
 	var dataPointAttrs pcommon.Map
 	switch metricType {
@@ -659,6 +758,10 @@ func runMetricsTest(
 		v.CopyTo(rl.Resource().Attributes().PutEmpty(k))
 	}
 	for k, v := range cfg.masked {
+		v.CopyTo(dataPointAttrs.PutEmpty(k))
+		v.CopyTo(rl.Resource().Attributes().PutEmpty(k))
+	}
+	for k, v := range cfg.blockedKeys {
 		v.CopyTo(dataPointAttrs.PutEmpty(k))
 		v.CopyTo(rl.Resource().Attributes().PutEmpty(k))
 	}
