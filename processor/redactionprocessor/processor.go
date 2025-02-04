@@ -203,7 +203,6 @@ func (s *redaction) processAttrs(_ context.Context, attributes pcommon.Map) {
 		}
 
 		// Mask any blocked keys for the other attributes
-		var matched bool
 		strVal := value.Str()
 		for _, compiledRE := range s.blockKeyRegexList {
 			if match := compiledRE.MatchString(k); match {
@@ -217,6 +216,7 @@ func (s *redaction) processAttrs(_ context.Context, attributes pcommon.Map) {
 		}
 
 		// Mask any blocked values for the other attributes
+		var matched bool
 		for _, compiledRE := range s.blockRegexList {
 			if match := compiledRE.MatchString(strVal); match {
 				if !matched {
@@ -243,16 +243,19 @@ func (s *redaction) processAttrs(_ context.Context, attributes pcommon.Map) {
 }
 
 func (s *redaction) maskValue(val string, regex *regexp.Regexp) string {
-	switch s.hashFunction {
-	case SHA1:
-		return hashString(val, sha1.New())
-	case SHA3:
-		return hashString(val, sha3.New256())
-	case MD5:
-		return hashString(val, md5.New())
-	default:
-		return regex.ReplaceAllString(val, "****")
+	hashFunc := func(match string) string {
+		switch s.hashFunction {
+		case SHA1:
+			return hashString(match, sha1.New())
+		case SHA3:
+			return hashString(match, sha3.New256())
+		case MD5:
+			return hashString(match, md5.New())
+		default:
+			return "****"
+		}
 	}
+	return regex.ReplaceAllStringFunc(val, hashFunc)
 }
 
 func hashString(input string, hasher hash.Hash) string {
