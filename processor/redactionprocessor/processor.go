@@ -3,7 +3,7 @@
 
 package redactionprocessor // import "github.com/open-telemetry/opentelemetry-collector-contrib/processor/redactionprocessor"
 
-// nolint:gosec
+//nolint:gosec
 import (
 	"context"
 	"crypto/md5"
@@ -241,7 +241,7 @@ func (s *redaction) processAttrs(_ context.Context, attributes pcommon.Map) {
 	s.addMetaAttrs(ignoring, attributes, "", ignoredKeyCount)
 }
 
-// nolint:gosec
+//nolint:gosec
 func (s *redaction) maskValue(val string, regex *regexp.Regexp) string {
 	hashFunc := func(match string) string {
 		switch s.hashFunction {

@@ -60,6 +60,6 @@ func (cfg *Config) validateHashFunction() error {
 	case SHA1, SHA3, MD5, NONE:
 		return nil
 	default:
-		return fmt.Errorf("unsupported hash function: '%s'", cfg.HashFunction)
+		return fmt.Errorf("unsupported hash function: '%s'. Supported functions are: 'md5', 'sha1', 'sha3'", cfg.HashFunction)
 	}
 }
