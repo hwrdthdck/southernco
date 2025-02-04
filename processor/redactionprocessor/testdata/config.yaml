@@ -17,7 +17,7 @@ redaction:
   ignored_keys:
     - safe_attribute
   # blocked_key_patterns is a list of blocked span attribute key patters. Span attributes
-	# matching the regexes on the list are masked.
+  # matching the regexes on the list are masked.
   blocked_key_patterns:
     - ".*token.*"
     - ".*api_key.*"
@@ -27,8 +27,8 @@ redaction:
     - "4[0-9]{12}(?:[0-9]{3})?" ## Visa credit card number
     - "(5[1-5][0-9]{14})"       ## MasterCard number
   # hash_function defines the function for hashing the values instead of
-	# masking them with a fixed string. By default, no hash function is used
-	# and masking with a fixed string is performed.
+  # masking them with a fixed string. By default, no hash function is used
+  # and masking with a fixed string is performed.
   hash_function: md5
   # Summary controls the verbosity level of the diagnostic attributes that
   # the processor adds to the spans when it redacts or masks other
