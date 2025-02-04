@@ -5,7 +5,10 @@ package dockerstatsreceiver // import "github.com/open-telemetry/opentelemetry-c
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,21 +55,67 @@ func newMetricsReceiver(set receiver.Settings, config *Config) *metricsReceiver 
 	}
 }
 
+func (c *Config) resolveTLSConfig() (*tls.Config, error) {
+	if !c.TLS.Enabled {
+		return nil, nil // No TLS configuration if not enabled
+	}
+
+	tlsConfig := &tls.Config{}
+
+	if c.TLS.CAFile != "" {
+		caCert, err := os.ReadFile(c.TLS.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read CA file: %w", err)
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	if c.TLS.CertFile != "" && c.TLS.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("unable to load TLS certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsConfig, nil
+}
+
 func (r *metricsReceiver) start(ctx context.Context, _ component.Host) error {
+
+	// Resolve TLS configuration
+	tlsConfig, tlsErr := r.config.resolveTLSConfig()
+	if tlsErr != nil {
+		r.settings.Logger.Error(fmt.Sprintf("Error resolving TLS config: %v", tlsErr))
+		return tlsErr
+	}
+
+	// Log if TLS is not configured
+	if tlsConfig == nil {
+		r.settings.Logger.Warn("TLS is not enabled, continuing without TLS config.")
+	}
+
+	// Initialize Docker client
 	var err error
 	r.client, err = docker.NewDockerClient(&r.config.Config, r.settings.Logger)
 	if err != nil {
 		return err
 	}
 
+	// Load container list
 	if err = r.client.LoadContainerList(ctx); err != nil {
 		return err
 	}
 
+	// Set up context for the event loop
 	cctx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
 
+	// Start container event loop
 	go r.client.ContainerEventLoop(cctx)
+
 	return nil
 }
 
