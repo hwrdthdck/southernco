@@ -70,18 +70,48 @@ func (r *rabbitmqScraper) scrape(ctx context.Context) (pmetric.Metrics, error) {
 		return pmetric.NewMetrics(), errClientNotInit
 	}
 
-	// Get queues for processing
+	var errs []error // Collect multiple errors instead of failing immediately
+
+	// Collect queue metrics
+	if err := r.collectQueueMetrics(ctx, now); err != nil {
+		errs = append(errs, err)
+	}
+
+	// Collect node metrics
+	if err := r.collectNodeMetrics(ctx, now); err != nil {
+		errs = append(errs, err)
+	}
+
+	// If there are errors, return them as a combined error
+	if len(errs) > 0 {
+		return pmetric.NewMetrics(), errors.Join(errs...)
+	}
+
+	return r.mb.Emit(), nil
+}
+
+func (r *rabbitmqScraper) collectQueueMetrics(ctx context.Context, now pcommon.Timestamp) error {
 	queues, err := r.client.GetQueues(ctx)
 	if err != nil {
-		return pmetric.NewMetrics(), err
+		return err
 	}
 
 	// Collect metrics for each queue
 	for _, queue := range queues {
 		r.collectQueue(queue, now)
 	}
+	return nil
+}
 
-	return r.mb.Emit(), nil
+func (r *rabbitmqScraper) collectNodeMetrics(ctx context.Context, now pcommon.Timestamp) error {
+	nodes, err := r.client.GetNodes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, node := range nodes {
+		r.collectNode(node, now)
+	}
+	return nil
 }
 
 // collectQueue collects metrics
@@ -122,6 +152,19 @@ func (r *rabbitmqScraper) collectQueue(queue *models.Queue, now pcommon.Timestam
 	rb.SetRabbitmqQueueName(queue.Name)
 	rb.SetRabbitmqNodeName(queue.Node)
 	rb.SetRabbitmqVhostName(queue.VHost)
+	r.mb.EmitForResource(metadata.WithResource(rb.Emit()))
+}
+
+// collectNode collects metrics for a specific RabbitMQ node
+func (r *rabbitmqScraper) collectNode(node *models.Node, now pcommon.Timestamp) {
+	r.mb.RecordRabbitmqNodeDiskFreeDataPoint(now, node.DiskFree)
+	r.mb.RecordRabbitmqNodeFdUsedDataPoint(now, node.FDUsed)
+	r.mb.RecordRabbitmqNodeMemLimitDataPoint(now, node.MemLimit)
+	r.mb.RecordRabbitmqNodeMemUsedDataPoint(now, node.MemUsed)
+
+	rb := r.mb.NewResourceBuilder()
+	rb.SetRabbitmqNodeName(node.Name)
+
 	r.mb.EmitForResource(metadata.WithResource(rb.Emit()))
 }
 

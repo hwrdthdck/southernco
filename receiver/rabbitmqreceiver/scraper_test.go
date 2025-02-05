@@ -98,15 +98,16 @@ func TestScraperScrape(t *testing.T) {
 			setupMockClient: func(*testing.T) client {
 				mockClient := mocks.MockClient{}
 				mockClient.On("GetQueues", mock.Anything).Return(nil, errors.New("some api error"))
+				mockClient.On("GetNodes", mock.Anything).Return(nil, errors.New("some api error"))
 				return &mockClient
 			},
 			expectedMetricGen: func(*testing.T) pmetric.Metrics {
 				return pmetric.NewMetrics()
 			},
-			expectedErr: errors.New("some api error"),
+			expectedErr: errors.New("some api error\nsome api error"),
 		},
 		{
-			desc: "Successful Collection",
+			desc: "Successful Queue Collection",
 			setupMockClient: func(t *testing.T) client {
 				mockClient := mocks.MockClient{}
 				// use helper function from client tests
@@ -116,6 +117,38 @@ func TestScraperScrape(t *testing.T) {
 				require.NoError(t, err)
 
 				mockClient.On("GetQueues", mock.Anything).Return(queues, nil)
+				mockClient.On("GetNodes", mock.Anything).Return(nil, nil)
+				return &mockClient
+			},
+			expectedMetricGen: func(t *testing.T) pmetric.Metrics {
+				goldenPath := filepath.Join("testdata", "expected_metrics", "metrics_golden.yaml")
+				expectedMetrics, err := golden.ReadMetrics(goldenPath)
+				require.NoError(t, err)
+				return expectedMetrics
+			},
+			expectedErr: nil,
+		},
+		{
+			desc: "Successful Node Metrics Collection",
+			setupMockClient: func(t *testing.T) client {
+				mockClient := mocks.MockClient{}
+
+				// Mock data for nodes
+				nodeData := loadAPIResponseData(t, nodesAPIResponseFile)
+				var nodes []*models.Node
+				err := json.Unmarshal(nodeData, &nodes)
+				require.NoError(t, err)
+
+				// Mock data for queues
+				queueData := loadAPIResponseData(t, queuesAPIResponseFile)
+				var queues []*models.Queue
+				err = json.Unmarshal(queueData, &queues)
+				require.NoError(t, err)
+
+				// Mock client methods
+				mockClient.On("GetNodes", mock.Anything).Return(nodes, nil)
+				mockClient.On("GetQueues", mock.Anything).Return(queues, nil)
+
 				return &mockClient
 			},
 			expectedMetricGen: func(t *testing.T) pmetric.Metrics {
