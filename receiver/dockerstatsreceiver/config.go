@@ -5,6 +5,7 @@ package dockerstatsreceiver // import "github.com/open-telemetry/opentelemetry-c
 
 import (
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configtls"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/scraper/scraperhelper"
 
@@ -38,12 +39,7 @@ type Config struct {
 	metadata.MetricsBuilderConfig `mapstructure:",squash"`
 
 	// TLS configuration (optional)
-	TLS struct {
-		Enabled  bool   `mapstructure:"enabled"`
-		CAFile   string `mapstructure:"ca_file"`
-		CertFile string `mapstructure:"cert_file"`
-		KeyFile  string `mapstructure:"key_file"`
-	} `mapstructure:"tls"`
+	TLSConfig *configtls.ClientConfig `mapstructure:"tls"`
 }
 
 func (config Config) Validate() error {
