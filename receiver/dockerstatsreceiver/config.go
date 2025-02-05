@@ -45,11 +45,8 @@ type Config struct {
 	// MetricsBuilderConfig config. Enable or disable stats by name.
 	metadata.MetricsBuilderConfig `mapstructure:",squash"`
 
-<<<<<<< HEAD
-	// TLS configuration (optional)
-=======
+
 	// TLS configuration
->>>>>>> 209ab1bd364c574246e911e2c3d21668bcd3f9d0
 	TLSConfig *configtls.ClientConfig `mapstructure:"tls"`
 }
 
