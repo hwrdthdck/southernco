@@ -69,9 +69,10 @@ func (r *metricsReceiver) start(ctx context.Context, _ component.Host) error {
 		return fmt.Errorf("failed to resolve TLS config: %w", tlsErr)
 	}
 
-	// Log at INFO level instead of WARN, since many users don't need TLS
 	if tlsConfig == nil {
-		r.settings.Logger.Info("TLS is not enabled, continuing without TLS config.")
+		r.settings.Logger.Info("TLS is not enabled, running without TLS.")
+	} else {
+		r.settings.Logger.Info("TLS is enabled.")
 	}
 
 	// Initialize Docker client
