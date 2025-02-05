@@ -15,6 +15,8 @@ import (
 	"github.com/docker/docker/api/types"
 	dtypes "github.com/docker/docker/api/types"
 	ctypes "github.com/docker/docker/api/types/container"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/docker"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -22,9 +24,12 @@ import (
 	"go.opentelemetry.io/collector/scraper/scrapererror"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
+<<<<<<< HEAD
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/docker"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver/internal/metadata"
+=======
+>>>>>>> 209ab1bd364c574246e911e2c3d21668bcd3f9d0
 )
 
 var (
