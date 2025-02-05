@@ -4,12 +4,12 @@
 package dockerstatsreceiver // import "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver"
 
 import (
-	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/confmap"
-	"go.opentelemetry.io/collector/scraper/scraperhelper"
-
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/docker"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver/internal/metadata"
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configtls"
+	"go.opentelemetry.io/collector/confmap"
+	"go.opentelemetry.io/collector/scraper/scraperhelper"
 )
 
 var _ component.Config = (*Config)(nil)
@@ -37,13 +37,8 @@ type Config struct {
 	// MetricsBuilderConfig config. Enable or disable stats by name.
 	metadata.MetricsBuilderConfig `mapstructure:",squash"`
 
-	// TLS configuration (optional)
-	TLS struct {
-		Enabled  bool   `mapstructure:"enabled"`
-		CAFile   string `mapstructure:"ca_file"`
-		CertFile string `mapstructure:"cert_file"`
-		KeyFile  string `mapstructure:"key_file"`
-	} `mapstructure:"tls"`
+	// TLS configuration
+	TLSConfig *configtls.ClientConfig `mapstructure:"tls"`
 }
 
 func (config Config) Validate() error {

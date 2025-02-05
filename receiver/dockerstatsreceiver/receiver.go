@@ -6,9 +6,7 @@ package dockerstatsreceiver // import "github.com/open-telemetry/opentelemetry-c
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,15 +15,15 @@ import (
 	"github.com/docker/docker/api/types"
 	dtypes "github.com/docker/docker/api/types"
 	ctypes "github.com/docker/docker/api/types/container"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/docker"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/receiver"
 	"go.opentelemetry.io/collector/scraper/scrapererror"
 	"go.uber.org/multierr"
-
-	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/docker"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/dockerstatsreceiver/internal/metadata"
+	"go.uber.org/zap"
 )
 
 var (
@@ -56,45 +54,24 @@ func newMetricsReceiver(set receiver.Settings, config *Config) *metricsReceiver 
 }
 
 func (c *Config) resolveTLSConfig() (*tls.Config, error) {
-	if !c.TLS.Enabled {
-		return nil, nil // No TLS configuration if not enabled
+	if c.TLSConfig == nil {
+		return nil, nil
 	}
 
-	tlsConfig := &tls.Config{}
-
-	if c.TLS.CAFile != "" {
-		caCert, err := os.ReadFile(c.TLS.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read CA file: %w", err)
-		}
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(caCert)
-		tlsConfig.RootCAs = caCertPool
-	}
-
-	if c.TLS.CertFile != "" && c.TLS.KeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("unable to load TLS certificate: %w", err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{cert}
-	}
-
-	return tlsConfig, nil
+	return c.TLSConfig.LoadTLSConfig(context.Background())
 }
 
 func (r *metricsReceiver) start(ctx context.Context, _ component.Host) error {
 
-	// Resolve TLS configuration
 	tlsConfig, tlsErr := r.config.resolveTLSConfig()
 	if tlsErr != nil {
-		r.settings.Logger.Error(fmt.Sprintf("Error resolving TLS config: %v", tlsErr))
-		return tlsErr
+		r.settings.Logger.Error("Failed to resolve TLS config", zap.Error(tlsErr))
+		return fmt.Errorf("failed to resolve TLS config: %w", tlsErr)
 	}
 
-	// Log if TLS is not configured
+	// Log at INFO level instead of WARN, since many users don't need TLS
 	if tlsConfig == nil {
-		r.settings.Logger.Warn("TLS is not enabled, continuing without TLS config.")
+		r.settings.Logger.Info("TLS is not enabled, continuing without TLS config.")
 	}
 
 	// Initialize Docker client
