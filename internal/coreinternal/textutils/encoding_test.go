@@ -43,11 +43,9 @@ func TestUTF8Encoding(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			encCfg := NewEncodingConfig()
-			encCfg.Encoding = test.encodingName
-			enc, err := encCfg.Build()
+			enc, err := LookupEncoding(test.encodingName)
 			assert.NoError(t, err)
-			assert.Equal(t, test.encoding, enc.Encoding)
+			assert.Equal(t, test.encoding, enc)
 		})
 	}
 }
